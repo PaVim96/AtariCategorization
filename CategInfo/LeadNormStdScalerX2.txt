@@ -1,0 +1,5 @@
+Number of categories is 9
+The categorization was done on CatData/LeadNormAll.csv
+The categorization is saved with filename LeadNormStdScalerX2.html
+Normalization: Standard scaler along game
+Categorization achieved 0.8539482879105521% on the constraint matrix from CalculatedCats/HumanNormalizedStdScalerX.csv

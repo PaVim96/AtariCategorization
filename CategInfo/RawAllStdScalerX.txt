@@ -1,0 +1,5 @@
+Number of categories is 8
+The categorization was done on CatData/RawAll.csv
+The categorization is saved with filename RawAllStdScalerX.html
+Normalization: Standard scaler along game
+Categorization achieved 0.7190775681341719% on the constraint matrix from CalculatedCats/HumanNormalizedStdScalerX.csv
