@@ -1,5 +1,0 @@
-Number of categories is 10
-The categorization was done on CatData/RawAllNoLeaderboard.csv
-The categorization is saved with filename RawAllNoLeaderboardStdScalerX2.html
-Normalization: Standard scaler along game
-Categorization achieved 0.5548567435359888% on the constraint matrix from Constraints/ExplorationConstraint.csv

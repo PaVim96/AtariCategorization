@@ -67,6 +67,9 @@ def convertRepeatedAlgorithms(algorithms):
     result = pd.Series(pd.DataFrame(stackedPerformancesOfAlgos).values.ravel())
     return result
 
+def resetInfo(self):
+    self.info = []
+
 def catVis(normalizedScores, needsNorm, hasSeveral, minVal = 0.0, maxVal = 1.0):
     gameNames = normalizedScores['Game']
     categoriesGames = normalizedScores['Categories']

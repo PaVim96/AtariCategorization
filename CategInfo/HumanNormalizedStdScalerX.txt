@@ -1,5 +1,0 @@
-Number of categories is 10
-The categorization was done on CatData/HumNormAll.csv
-The categorization is saved with filename HumanNormalizedStdScalerX.html
-Normalization: Standard scaler along game
-Categorization achieved 0.5143256464011181% on the constraint matrix from Constraints/ExplorationConstraint.csv
