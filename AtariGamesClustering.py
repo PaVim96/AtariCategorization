@@ -304,7 +304,7 @@ class AtariGamesClustering:
         bestN = bestN[:5]
         bestNScores = np.take(silhouetteScores, bestN-2)
         #we do own scoring, because having more categories is better but we penalize with score 
-        bestNPenalized = ((bestNScores + 1)/2) + (bestN / np.max(bestN))
+        bestNPenalized = 80*((bestNScores + 1)/2) + 20*(bestN / np.max(bestN))
 
         n = bestN[np.argmax(bestNPenalized)]
         correspondingScore = bestNScores[np.argmax(bestNPenalized)]
