@@ -28,6 +28,7 @@ class AtariGamesClustering:
         self.info = []
         self.numberNormalizations = 0
         self.numberCategorizations = 0
+        self.numberFeatureSelections = 0
         
         #first set info of possible normalization types and 
         self.normalizationTypes: list = self.__setNormalizationTypes()
@@ -36,9 +37,72 @@ class AtariGamesClustering:
         #prepare data to numpy array
         self.listOfGameNames, self.originalData, self.listOfFeatureNames = self.__prepData(dataPath)
 
+        self.data = np.copy(self.originalData)
+
 
     
+    def convertDRLScores(self, startIndexes, endIndexes, normalizationCSVPath):
+        """Converts Raw DRL-Scores contained in the original data to normalized data (human-normalized for example)
+
+        Args:
+            startIndexes (List): [List of start indexes. Every start index indicates the first column of DRL-Agent scores of some evaluation type to normalize on. Minimum possible index is always 1 (since Games are 0)]
+            endIndexes ([type]): [List of end indexes (! inclusive !). Analogous to start indexes]
+            normalizationCSVPath (String): [A csv file in ./BaselineData. Number of columns needs to be equal to 2*size(startIndexes)+1]
+        """
+
+        #first a lot of checks 
+
+        #check lists 
+
+        if (not isinstance(startIndexes, list)) or (not isinstance(endIndexes, list)):
+            raise TypeError("Indexes need to be lists")
+
+        #check matching list sizes 
+        if len(startIndexes) != len(endIndexes):
+            raise ValueError("Lists don't match")
+
+
+        baselineFrame = pd.read_csv(normalizationCSVPath)
+        #check that size is right for data 
+        indexSize = len(baselineFrame.columns)
         
+        #2*listSize + 1 because CSV contains column with game names
+        if indexSize != 2*len(startIndexes)+1:
+            raise ValueError("CSV isn't in right format")
+
+        baselineData = baselineFrame.iloc[:, 1:].to_numpy()
+    
+
+        #number baselines and random agent scores
+        #first check that number cols is correct
+        sizeBaseline = baselineData.shape[1]
+        if sizeBaseline % 2 != 0:
+            raise ValueError("Format incorrect: Columns need to be [Baseline1, Randomscore1, (Baseline2, Randomscore2, ...)]")
+
+        baselineScores = np.zeros(baselineData.shape[0], sizeBaseline / 2)
+        randomScores = np.zeros(baselineData.shape[0], sizeBaseline / 2)
+
+        for i in range(sizeBaseline):
+            baselineScores[:, i] = baselineData[:, i]
+            randomScores[:, i] = baselineData[:, i+1]
+
+        data = self.getData()
+        #now normalize original data
+
+        sizeListIndexes = len(startIndexes)
+
+        for i in range(sizeListIndexes):
+            startIndex = startIndexes[i]
+            endIndex = endIndexes[i]
+
+            currRandomScore = randomScores[:, i].reshape(-1, 1).squeeze()
+            currBaselineScore = baselineScores[:, i].reshape(-1, 1).squeeze()
+
+            currData = data[:, startIndex:endIndex+1]
+            newData = (currData - currRandomScore) / (currBaselineScore - currRandomScore)
+            self.setData(newData, startIndex, endIndex)
+        
+            
 
     
     def __normalizeData(self, dataToNormalize, normMethod, alongGame, writeInfo=False):
@@ -54,6 +118,7 @@ class AtariGamesClustering:
         """
 
         self.__checkNormVal(normMethod)
+
         self.numberNormalizations += 1 
 
         #add info of methods used to information
@@ -84,15 +149,45 @@ class AtariGamesClustering:
 
         return normalizedData
 
+    def __resetData(self):
+        self.data = self.originalData
+
+
     def __getListOfGames(self):
         return self.listOfGameNames
 
     def __getInfo(self):
         return self.info
 
+    def __getFeatureNames(self):
+        return self.listOfFeatureNames
+
 
     def getData(self):
-        return self.originalData
+        return self.data
+
+    def setData(self, data, startIndex=0, endIndex=-1):
+        """Sets the original data to the input data at the specified indexes
+
+        Args:
+            data ((g,f) numpy-Array): [Data to override with]
+            startIndex (int, optional): [Start index of overwriting]. Defaults to 0.
+            endIndex (int, optional): [End index of overwriting]. Defaults to -1.
+        """
+
+        #check that indexes aren't weird
+        if (startIndex >= endIndex and endIndex != -1) or startIndex < 0 or endIndex > self.data.shape[1]:
+            raise ValueError("Either start index or end index is non valid")
+
+        #check that size of data and indexes match 
+        if endIndex != data.shape[1] or data.shape[0] != self.data.shape[0]:
+            raise ValueError("Non matching sizes")
+
+        #make index inclusive not exclusive
+        if endIndex != -1:
+            endIndex += 1
+        self.data[:, startIndex:endIndex] = data
+
 
 
     def writeInfo(self, fileName):
@@ -183,7 +278,7 @@ class AtariGamesClustering:
             data ((g,f) numpy-Array): [The data used to cluster games]
             normMethod (String): [Method to normalize data with]
             alongGame (Boolean): [Whether to normalize along game or not]
-            categType (Int): [Type of clustering used. Only relevant for the metric used to calculate the silhouette score]
+            categType (String): [Type of clustering used. Only relevant for the metric used to calculate the silhouette score]
             writeInfo (Bool, defaults to False): [Whether to write info in later info file]
 
         Returns:
@@ -203,12 +298,13 @@ class AtariGamesClustering:
             silhouetteScores.append(currScore)
         
         silhouetteScores = np.array(silhouetteScores).squeeze()
-        #get best N (we assume descending sorting)
+        #get best N (we assume ascending sorting)
+        #+2 because we start with k=2
         bestN = np.argsort(silhouetteScores)[::-1] + 2
         bestN = bestN[:5]
         bestNScores = np.take(silhouetteScores, bestN-2)
         #we do own scoring, because having more categories is better but we penalize with score 
-        bestNPenalized = (bestNScores) * (bestN / np.max(bestN))
+        bestNPenalized = ((bestNScores + 1)/2) + (bestN / np.max(bestN))
 
         n = bestN[np.argmax(bestNPenalized)]
         correspondingScore = bestNScores[np.argmax(bestNPenalized)]
@@ -258,25 +354,32 @@ class AtariGamesClustering:
         score = silhouette_score(normedData, labels)
         return labels, score
 
+    def __incrementSelections(self):
+        self.numberFeatureSelections += 1
 
-    def featureEngineerer(self, features, featureNames, method="pearson"):
+    def __getCountFeatureSelection(self):
+        return self.numberFeatureSelections
+
+
+    def featureEngineerer(self, method="pearson", writeInfo = False):
         """Calculates feature selected data from the original data
 
         Args:
-            features ((g,f) numpy array): [Numpy array containing as rows number of games and per feature a column]
-            featureNames (f numpy array): [Numpy array containing names of features]
             method (string): [Method to use when doing feature selection]
-        Returns:
-            featureSelected ((g, f') Numpy-array): [Numpy array containing only selected features]
         """
-
+        features = self.getData()
+        featureNames = self.__getFeatureNames()
+        if self.__getCountFeatureSelection() > 0:
+            self.__resetData()
+        self.__incrementSelections()
 
         if method == "pca":
             featureSelector = PCA(n_components=0.95, svd_solver="full")
             featureSelected = featureSelector.fit_transform(features)
-            leftFeatures = f"Features still left are {featureNames}"
-            self.__addInfo(leftFeatures)
-            return featureSelected
+            if writeInfo:
+                leftFeatures = f"Features still left are {featureNames}"
+                self.__addInfo(leftFeatures)
+            self.data = featureSelected
         elif method == "pearson":
             dataframe = pd.DataFrame(data=features, columns=featureNames)
             correlation = np.abs(dataframe.corr(method="pearson").to_numpy())
@@ -284,7 +387,7 @@ class AtariGamesClustering:
             #feature indexes to remove
             indexes = list()
 
-            #remove features with correlation > 0.80
+            #remove features with correlation > 0.9
             for i in range(correlation.shape[0]):
                 for j in range(correlation.shape[1]):
                     if j in indexes:
@@ -292,7 +395,7 @@ class AtariGamesClustering:
                     #if same index we have 1 and pass
                     if i == j:
                         continue
-                    if correlation[i][j] > 0.8:
+                    if correlation[i][j] > 0.9:
                         #i throw away myself
                         indexes.append(i)
             indexes = np.unique(np.array(indexes))
@@ -300,11 +403,68 @@ class AtariGamesClustering:
             #drop data that we dont need anymore
             newFeatures = np.delete(features, indexes, axis=1)
             newFeatureNames = np.delete(featureNames, indexes, axis=0)
-            leftFeatures = f"Features still left: {newFeatureNames}"
-            self.__addInfo(leftFeatures)
-            return newFeatures
+            if writeInfo:
+                leftFeatures = f"Features still left: {newFeatureNames}"
+                self.__addInfo(leftFeatures)
+            #not with setData() because we override the original data!
+            self.data = newFeatures
+        elif method == "sfs":
+            newData = self.__sfsSelection(features, featureNames, writeInfo=writeInfo)
+            self.data = newData
         else:
             raise ValueError(f"{method} as Method for feature selection not known")
+
+
+    def __sfsSelection(self, data, featureNames, categType="KMeans", normMethod="Standard", alongGame=False,toKeep=5, writeInfo=False):
+        """Feature Selection with Sequential Forward Selection
+
+        Args:
+            data ((g,f) numpy-Array): [Numpy Array containing the data]
+            featureNames ((f,) numpy-Array): [Array containing the names of the features]
+            toKeep (Int): [Number of Features to keep, defaults to 5]
+
+        Returns:
+            newData ((g,toKeep)): [Numpy array containing new features]
+        """
+
+
+        #keep count of optimal features to keep
+        indicesToKeep = []
+        bestScoreAll = -np.inf
+        iterations = 0
+        
+        while len(indicesToKeep) < toKeep and iterations != 5:
+            #every new iteration we keep track of bestScore
+            iterations += 1
+            bestScore = -np.inf
+            indexToKeep = None
+            for featureIndex in range(data.shape[1]):
+                if featureIndex in indicesToKeep:
+                    continue
+                currentIndexArray = indicesToKeep + [featureIndex]
+                #construct array out of indicestoKeep and current index
+                #len == 0 -> just index
+                currentData = data[:, currentIndexArray]
+                k = self.optimalKSilhouette(currentData, normMethod=normMethod, alongGame=False, categMethod=categType, writeInfo=writeInfo)
+                _, score = self.calculateCategories(currentData, normMethod=normMethod, alongGame=alongGame, n=k, catMethod=categType, writeInfo=writeInfo)
+                if score > bestScore:
+                    bestScore = score
+                    indexToKeep = featureIndex
+            if bestScore > bestScoreAll:
+                bestScoreAll = bestScore
+                indicesToKeep.append(indexToKeep)
+
+        featureInfo = f"Features kept are: {featureNames[indicesToKeep]}" 
+        print(bestScoreAll)
+        print(featureInfo)
+
+        if writeInfo:
+            self.__addInfo(featureInfo) 
+        return data[:, indicesToKeep]
+
+                
+
+
 
 
     #https://people.eecs.berkeley.edu/~jordan/sail/readings/luxburg_ftml.pdf
