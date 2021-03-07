@@ -9,6 +9,8 @@ from sklearn_extra.cluster import KMedoids
 from sklearn.metrics import jaccard_score
 from sklearn.mixture import GaussianMixture
 from sklearn.metrics import silhouette_score
+from sklearn.neighbors import NearestNeighbors
+import matplotlib.pyplot as plt
 
 
 class AtariGamesClustering:
@@ -29,7 +31,13 @@ class AtariGamesClustering:
         self.numberNormalizations = 0
         self.numberCategorizations = 0
         self.numberFeatureSelections = 0
-        
+        self.DBSCANEpsilon = None
+        self.needEpsilon = True
+        self.AlgoType = None
+        self.NormType = None
+        self.AlongGame = None
+
+
         #first set info of possible normalization types and 
         self.normalizationTypes: list = self.__setNormalizationTypes()
         self.categorizationAlgos: list = self.__setCatAlgos()
@@ -39,8 +47,30 @@ class AtariGamesClustering:
 
         self.data = np.copy(self.originalData)
 
+    def setClusterAlgorithm(self, methodName):
+        self.__checkCategMethodVal(methodName)
+        self.AlgoType = methodName
+
+    def getClusterAlgorithm(self):
+        algo = self.AlgoType
+        if algo is None:
+            raise ValueError("Please make sure that you have set the Clustering Algorithm with setClusterAlgorithm(...)")
+        else:
+            return algo
 
     
+    def setNormalization(self, normType, alongGame):
+        self.__checkNormVal(normType)
+        self.NormType = normType
+        self.AlongGame = alongGame
+
+    def getNormalization(self):
+        normalization = (self.NormType, self.AlongGame)
+        if normalization[0] is None or normalization[1] is None:
+            raise ValueError("Please make sure that you have set the Normalization type with setNormalization(...)")
+        else:
+            return normalization
+
     def convertDRLScores(self, startIndexes, endIndexes, normalizationCSVPath):
         """Converts Raw DRL-Scores contained in the original data to normalized data (human-normalized for example)
 
@@ -105,7 +135,7 @@ class AtariGamesClustering:
             
 
     
-    def __normalizeData(self, dataToNormalize, normMethod, alongGame, writeInfo=False):
+    def __normalizeData(self, dataToNormalize, writeInfo=False):
         """Normalizes data
 
         Args:
@@ -117,7 +147,7 @@ class AtariGamesClustering:
             normalizedData ((g,f) numpy-Array): [Normalized data]
         """
 
-        self.__checkNormVal(normMethod)
+        normMethod, alongGame = self.getNormalization()
 
         self.numberNormalizations += 1 
 
@@ -230,7 +260,10 @@ class AtariGamesClustering:
         data = self.originalData
 
         #convert data to appropriate format for heatmap 
-        data = self.__normalizeData(data, "Min-Max", alongGame=True)
+        #set normalization to min-max, alonGame, keep old normalization for afterwards
+        currentNorm = self.getNormalization()
+        self.setNormalization("Min-Max", True)
+        data = self.__normalizeData(data)
 
         games = self.listOfGameNames
         featureNames = self.listOfFeatureNames
@@ -254,7 +287,7 @@ class AtariGamesClustering:
 
         #save heatmap
         heatmap.save(f"./Visualisations/{saveFileName}.html")
-
+        self.setNormalization(currentNorm[0], currentNorm[1])
 
 
 
@@ -270,7 +303,7 @@ class AtariGamesClustering:
             raise ValueError(f"This type of Normalization {normMethod} is not supported, supported is: {self.getPossibleNormalizations()}")
 
 
-    def optimalKSilhouette(self, data, normMethod, alongGame, categMethod, writeInfo = False):
+    def optimalKSilhouette(self, data, writeInfo = False):
         """Calculates optimal number of clusters k with respect to the silhouette score and the number k. 
         If scores for two k1 and k2 are similar but k2 has way more clusters we prefer k2.
 
@@ -285,16 +318,15 @@ class AtariGamesClustering:
             k (Int): [Optimal number of clusters k, regarding silhouette score and number of clusters k]
         """
 
-        self.__checkCategMethodVal(categMethod)
 
-        normalizedData = self.__normalizeData(data, normMethod, alongGame, writeInfo)
+        normalizedData = self.__normalizeData(data, writeInfo)
 
         silhouetteScores = list()
 
         upperBound = int(normalizedData.shape[0] / 2)
         
         for i in range(2, upperBound):
-            _, currScore = self.calculateCategories(normalizedData, normMethod, alongGame, i, categMethod)
+            _, currScore = self.calculateCategories(normalizedData, i)
             silhouetteScores.append(currScore)
         
         silhouetteScores = np.array(silhouetteScores).squeeze()
@@ -317,7 +349,7 @@ class AtariGamesClustering:
 
 
     #TODO: ADD DBSCAN
-    def calculateCategories(self, data, normMethod, alongGame, n, catMethod, writeInfo=False):
+    def calculateCategories(self, data, n, writeInfo=False):
         """Clusters normedData by the specified clustering method
 
         Args:
@@ -331,9 +363,9 @@ class AtariGamesClustering:
             labels ((g,) numpy-Array): [Labels for the data]
             score (Float): [Mean silhouette coefficient of the clustering]
         """
-        self.__checkCategMethodVal(catMethod)
         self.numberCategorizations += 1
-        normedData = self.__normalizeData(data, normMethod, alongGame)
+        normedData = self.__normalizeData(data)
+        catMethod = self.getClusterAlgorithm()
 
         if writeInfo:
             infoStart = "Clustering Info:"
@@ -349,6 +381,9 @@ class AtariGamesClustering:
         elif catMethod == "KMedoids":
             metric = "mahalanobis"
             model = KMedoids(n, metric=metric)
+        elif catMethod == "DBSCAN":
+            needEpsilon = self.__needDBSCANEpsilon() 
+            model = self.DBSCANAlgo(normedData, needElbow=needEpsilon)
         
         labels = model.fit_predict(normedData)
         score = silhouette_score(normedData, labels)
@@ -415,7 +450,7 @@ class AtariGamesClustering:
             raise ValueError(f"{method} as Method for feature selection not known")
 
 
-    def __sfsSelection(self, data, featureNames, categType="KMeans", normMethod="Standard", alongGame=False,toKeep=5, writeInfo=False):
+    def __sfsSelection(self, data, featureNames, toKeep=5, writeInfo=False):
         """Feature Selection with Sequential Forward Selection
 
         Args:
@@ -445,8 +480,8 @@ class AtariGamesClustering:
                 #construct array out of indicestoKeep and current index
                 #len == 0 -> just index
                 currentData = data[:, currentIndexArray]
-                k = self.optimalKSilhouette(currentData, normMethod=normMethod, alongGame=False, categMethod=categType, writeInfo=writeInfo)
-                _, score = self.calculateCategories(currentData, normMethod=normMethod, alongGame=alongGame, n=k, catMethod=categType, writeInfo=writeInfo)
+                k = self.optimalKSilhouette(currentData, writeInfo=writeInfo)
+                _, score = self.calculateCategories(currentData, n=k, writeInfo=writeInfo)
                 if score > bestScore:
                     bestScore = score
                     indexToKeep = featureIndex
@@ -455,22 +490,67 @@ class AtariGamesClustering:
                 indicesToKeep.append(indexToKeep)
 
         featureInfo = f"Features kept are: {featureNames[indicesToKeep]}" 
-        print(bestScoreAll)
-        print(featureInfo)
+
+        #little ugly but whateeeveeer, set needEpsilon to True by None
+        self.__setDBSCANEpsilon(None)
+
 
         if writeInfo:
             self.__addInfo(featureInfo) 
         return data[:, indicesToKeep]
 
-                
+    def DBSCANAlgo(self, normalizedData, writeInfo=False, needElbow=False):
+        if needElbow:
+            #get distance data
+            neighbors = NearestNeighbors(n_neighbors=3)
+            nbrs = neighbors.fit(normalizedData)
+            distances, _ = nbrs.kneighbors(normalizedData)
+            distances = np.sort(distances, axis=0)
+            distances = distances[:, 2]
+            
+            print("Extract from the following plot the elbow-Point for the DBSCAN Algorithm")
+            plt.plot(distances)
+            plt.show()
 
+            epsilon = input("Please Input the optimal Epsilon obtained by the Elbow-Plot:\n")
+            epsilon = float(epsilon)
+            self.__setDBSCANEpsilon(epsilon)
+        else:
+            epsilon = self.__getDBSCANEpsilon()
+        
+
+        model = DBSCAN(eps=epsilon, min_samples=2)
+
+        if writeInfo:
+            info = f"Best epsilon for DBSCAN is {epsilon}"
+            self.__addInfo(info)
+        return model
+
+
+    def __needDBSCANEpsilon(self):
+        return self.needEpsilon
+
+    def __setDBSCANEpsilon(self, epsilon):
+        if epsilon is None:
+            self.needEpsilon = True
+        else:
+            self.needEpsilon = False
+        self.DBSCANEpsilon = epsilon
+
+    def __getDBSCANEpsilon(self):
+        epsilon = self.DBSCANEpsilon
+
+        if epsilon is None:
+            raise ValueError("DBSCAN needs Epsilon to continue")
+
+        return epsilon
 
 
 
     #https://people.eecs.berkeley.edu/~jordan/sail/readings/luxburg_ftml.pdf
     #http://citeseerx.ist.psu.edu/viewdoc/download;jsessionid=9128DE558BAA6F3B88A36718F4FD858D?doi=10.1.1.331.1569&rep=rep1&type=pdf
     #second paper p.6-7
-    def calcRobustness(self, data, normMethod, alongGame, n, catMethod):
+    def calcRobustness(self, data, n):
         """Calculates the robustness of a clustering algorithm
 
         Args:
@@ -494,14 +574,14 @@ class AtariGamesClustering:
         wholeSim = 0
         maxAmount = 100
 
-        groundTruth, _ = self.calculateCategories(data, normMethod, alongGame, n, catMethod)
+        groundTruth, _ = self.calculateCategories(data, n)
 
         for _ in range(maxAmount):
             #generate bootstrap sample indices, without replacement for numerical stability
             x_star = random.sample(range(0, data.shape[0]), sampleSize)
             samples = data[x_star, :]
             assert samples.shape[1] == data.shape[1], "sampling on stability testing is wrong"
-            compareLabels, _, = self.calculateCategories(samples, normMethod, alongGame, n, catMethod) 
+            compareLabels, _, = self.calculateCategories(samples, n) 
             #taken from paper
             #indices that were used in the to compare clustering
             #take indices ground truth clustering were indices were used for bootstrapped clustering
