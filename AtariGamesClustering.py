@@ -109,10 +109,10 @@ class AtariGamesClustering:
         if sizeBaseline % 2 != 0:
             raise ValueError("Format incorrect: Columns need to be [Baseline1, Randomscore1, (Baseline2, Randomscore2, ...)]")
 
-        baselineScores = np.zeros(baselineData.shape[0], sizeBaseline / 2)
-        randomScores = np.zeros(baselineData.shape[0], sizeBaseline / 2)
+        baselineScores = np.zeros((baselineData.shape[0], int(sizeBaseline / 2)))
+        randomScores = np.zeros((baselineData.shape[0], int(sizeBaseline / 2)))
 
-        for i in range(sizeBaseline):
+        for i in range(int(sizeBaseline/2)):
             baselineScores[:, i] = baselineData[:, i]
             randomScores[:, i] = baselineData[:, i+1]
 
@@ -125,8 +125,8 @@ class AtariGamesClustering:
             startIndex = startIndexes[i]
             endIndex = endIndexes[i]
 
-            currRandomScore = randomScores[:, i].reshape(-1, 1).squeeze()
-            currBaselineScore = baselineScores[:, i].reshape(-1, 1).squeeze()
+            currRandomScore = randomScores[:, i].reshape(-1, 1)
+            currBaselineScore = baselineScores[:, i].reshape(-1, 1)
 
             currData = data[:, startIndex:endIndex+1]
             newData = (currData - currRandomScore) / (currBaselineScore - currRandomScore)
