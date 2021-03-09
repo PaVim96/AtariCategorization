@@ -8,7 +8,7 @@ from sklearn.cluster import KMeans, DBSCAN
 from sklearn_extra.cluster import KMedoids
 from sklearn.metrics import jaccard_score
 from sklearn.mixture import GaussianMixture
-from sklearn.metrics import silhouette_score
+from sklearn.metrics import silhouette_score, davies_bouldin_score
 from sklearn.neighbors import NearestNeighbors
 import matplotlib.pyplot as plt
 
@@ -45,7 +45,6 @@ class AtariGamesClustering:
 
         #prepare data to numpy array
         self.listOfGameNames, self.originalData, self.listOfFeatureNames = self.__prepData(dataPath)
-        print(self.listOfGameNames)
 
         self.data = np.copy(self.originalData)
 
@@ -73,7 +72,7 @@ class AtariGamesClustering:
         else:
             return normalization
 
-    def convertDRLScores(self, startIndexes, endIndexes, normalizationCSVPath):
+    def convertDRLScores(self, normalizationCSVPath, startIndexes=None, endIndexes = None):
         """Converts Raw DRL-Scores contained in the original data to normalized data (human-normalized for example)
 
         Args:
@@ -82,16 +81,18 @@ class AtariGamesClustering:
             normalizationCSVPath (String): [A csv file in ./BaselineData. Number of columns needs to be equal to 2*size(startIndexes)+1]
         """
 
+
         #first a lot of checks 
-
         #check lists 
+        indexesAreNone = (startIndexes is None) and (endIndexes is None)
+        if not indexesAreNone:
+            if (not isinstance(startIndexes, list)) or (not isinstance(endIndexes, list)):
+                raise TypeError("Indexes need to be lists")
 
-        if (not isinstance(startIndexes, list)) or (not isinstance(endIndexes, list)):
-            raise TypeError("Indexes need to be lists")
-
-        #check matching list sizes 
-        if len(startIndexes) != len(endIndexes):
-            raise ValueError("Lists don't match")
+        if not indexesAreNone:
+            #check matching list sizes 
+            if len(startIndexes) != len(endIndexes):
+                raise ValueError("Lists don't match")
 
 
         baselineFrame = pd.read_csv(normalizationCSVPath)
@@ -99,18 +100,33 @@ class AtariGamesClustering:
         indexSize = len(baselineFrame.columns)
         
         #2*listSize + 1 because CSV contains column with game names
-        if indexSize != 2*len(startIndexes)+1:
+        #for simple case simply == 3 
+        if indexSize != 3 or (not indexesAreNone and indexSize != 2*len(startIndexes)+1):
             raise ValueError("CSV isn't in right format")
 
 
         baselineData = baselineFrame.iloc[:, 1:].to_numpy()
-    
+
+
 
         #number baselines and random agent scores
         #first check that number cols is correct
         sizeBaseline = baselineData.shape[1]
         if sizeBaseline % 2 != 0:
             raise ValueError("Format incorrect: Columns need to be [Baseline1, Randomscore1, (Baseline2, Randomscore2, ...)]")
+
+
+        #we only need to check if we have complex baseline normalization (more than a single one)
+        needCheck = (startIndexes is not None) and endIndexes is not None
+        #if we dont need a check stuff gets easier
+        if not needCheck:
+            baseScore = baselineData[:, 0].reshape(-1, 1)
+            randomScore = baselineData[:, 1].reshape(-1, 1)
+
+            data = self.getData()
+            newData = (data - randomScore) / (baseScore - randomScore)
+            self.setData(newData)
+            return
 
         baselineScores = np.zeros((baselineData.shape[0], int(sizeBaseline / 2)))
         randomScores = np.zeros((baselineData.shape[0], int(sizeBaseline / 2)))
@@ -157,8 +173,8 @@ class AtariGamesClustering:
 
         #add info of methods used to information
         if writeInfo:
-            alongGameInfo = f"Normalization {self.numberNormalizations} was done along games: {alongGame}"
-            normMethodInfo = f"Normalization {self.numberNormalizations} was done using {normMethod}"
+            alongGameInfo = f"Normalization was done along games: {alongGame}"
+            normMethodInfo = f"Normalization was done using {normMethod}"
             self.__addInfo(alongGameInfo)
             self.__addInfo(normMethodInfo)
 
@@ -225,14 +241,17 @@ class AtariGamesClustering:
         if (startIndex >= endIndex and endIndex != -1) or startIndex < 0 or endIndex > self.data.shape[1]:
             raise ValueError("Either start index or end index is non valid")
         #check that size of data and indexes match 
-        if endIndex+1 != data.shape[1] or data.shape[0] != self.data.shape[0]:
+        if (endIndex != -1 and endIndex+1 != data.shape[1]) or data.shape[0] != self.data.shape[0]:
             raise ValueError("Non matching sizes")
 
         #make index inclusive not exclusive
         if endIndex != -1:
             endIndex += 1
 
-        self.data[:, startIndex:endIndex] = data
+        if endIndex == -1 and startIndex == 0:
+            self.data = np.copy(data)
+        else:
+            self.data[:, startIndex:endIndex] = data
 
 
     def makeFileName(self, clusterDataName):
@@ -399,7 +418,7 @@ class AtariGamesClustering:
 
         if writeInfo:
             infoStart = "Clustering Info:"
-            infoString = f"Categorization {self.numberCategorizations} was done with {catMethod}, with k: {n}"
+            infoString = f"Categorization was done with {catMethod}, with k: {n}"
             self.__addInfo(infoStart)
             self.__addInfo(infoString)
 
@@ -413,7 +432,7 @@ class AtariGamesClustering:
             model = KMedoids(n, metric=metric)
         elif catMethod == "DBSCAN":
             needEpsilon = self.__needDBSCANEpsilon() 
-            model = self.DBSCANAlgo(normedData, needElbow=needEpsilon)
+            model = self.DBSCANAlgo(normedData, needElbow=needEpsilon, writeInfo=writeInfo)
         
         labels = model.fit_predict(normedData)
 
@@ -594,6 +613,28 @@ class AtariGamesClustering:
         return epsilon
 
 
+    def loadClustering(self, csvPath):
+        frame = pd.read_csv(csvPath)
+        labels = frame.iloc[:, 1].to_numpy()
+        return labels.reshape((-1,1)).squeeze()
+
+
+
+    def calcScore(self, data, labels, clustParam, writeInfo=False):
+        score1 = 1 - davies_bouldin_score(data, labels)
+        score2 = silhouette_score(data, labels)
+        robustness = self.calcRobustness(data, clustParam)
+        instanceScore = self.__calcInstanceScore(labels)
+
+        scoreStartInfo = "Scoring:"
+        scoreInfo = f"Davies-Bouldin-Index: {score1} (best -> 1), Mean Silhouette Coefficient: {score2} (best -> 1), Robustness: {robustness} (best -> 1), InstanceScore: {instanceScore} (best -> 1)"
+        if writeInfo:
+            self.__addInfo(scoreStartInfo)
+            self.__addInfo(scoreInfo)
+
+        finalScore = (30*score1/100) + (30*score2/100) + (30*robustness/100) + (10*instanceScore/100)
+        return finalScore
+
 
     #https://people.eecs.berkeley.edu/~jordan/sail/readings/luxburg_ftml.pdf
     #http://citeseerx.ist.psu.edu/viewdoc/download;jsessionid=9128DE558BAA6F3B88A36718F4FD858D?doi=10.1.1.331.1569&rep=rep1&type=pdf
@@ -634,7 +675,7 @@ class AtariGamesClustering:
             #indices that were used in the to compare clustering
             #take indices ground truth clustering were indices were used for bootstrapped clustering
             groundTruthCompare = groundTruth[x_star]
-            sim = self.calcSimilarity(groundTruthCompare, compareLabels)
+            sim = self.__calcSimilarity(groundTruthCompare, compareLabels)
             wholeSim += sim
         
         #calculate average jaccard similarity
@@ -643,7 +684,7 @@ class AtariGamesClustering:
         return performance
 
 
-    def calcSimilarity(self, groundTruth, compareValues):
+    def __calcSimilarity(self, groundTruth, compareValues):
         """
         Calculates jaccard similarity between a ground Truth and calculated clustering. Used for robustness calculation
 
@@ -657,7 +698,7 @@ class AtariGamesClustering:
         return jaccard_score(groundTruth, compareValues, average="weighted")
 
 
-    def calculateInstanceScore(self, labels):
+    def __calcInstanceScore(self, labels):
         """Calculates a goodness of clustering depending on how many games are in the different categories. 
         A good clustering is a clustering with clusters with more than 1 game but not too many games
 
@@ -668,19 +709,28 @@ class AtariGamesClustering:
             [float]: [Instance score]
         """
 
-        numberGames = np.size(labels)
-        numberCats = np.size(np.unique(labels))
+        #use kl-divergence between uniform distribution and histogram of labels
+        uniqueLabels = np.unique(labels)
+        numSamples = labels.size
+
+        klDivergence = 0
+
+        #uniform distribution is 1/#cats
+        uniform = 1 / uniqueLabels.size
+
+        for cluster in uniqueLabels:
+            currentSize = labels[labels == cluster].size
+            currentHistogram = currentSize / numSamples
+
+            klDivergence += uniform * np.log(uniform / currentHistogram)
         
-        maxScore = numberCats
-        currScore = 0
-        for i in range(numberCats):
-            boolArray = labels == i
-            currNumberCats = np.size(labels[boolArray])
-            if currNumberCats == 1 or currNumberCats >= int(0.75 * numberGames):
-                continue
-            else:
-                currScore += 1
-        return float(currScore / maxScore)
+        #constraint range to (0,1]
+        return np.exp(-klDivergence)
+
+
+
+
+
 
 
     def __addInfo(self, infoString):
