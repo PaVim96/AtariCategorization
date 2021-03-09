@@ -36,6 +36,7 @@ class AtariGamesClustering:
         self.AlgoType = None
         self.NormType = None
         self.AlongGame = None
+        self.FeatureEngineerer = None
 
 
         #first set info of possible normalization types and 
@@ -44,6 +45,7 @@ class AtariGamesClustering:
 
         #prepare data to numpy array
         self.listOfGameNames, self.originalData, self.listOfFeatureNames = self.__prepData(dataPath)
+        print(self.listOfGameNames)
 
         self.data = np.copy(self.originalData)
 
@@ -100,6 +102,7 @@ class AtariGamesClustering:
         if indexSize != 2*len(startIndexes)+1:
             raise ValueError("CSV isn't in right format")
 
+
         baselineData = baselineFrame.iloc[:, 1:].to_numpy()
     
 
@@ -147,6 +150,7 @@ class AtariGamesClustering:
             normalizedData ((g,f) numpy-Array): [Normalized data]
         """
 
+
         normMethod, alongGame = self.getNormalization()
 
         self.numberNormalizations += 1 
@@ -158,15 +162,26 @@ class AtariGamesClustering:
             self.__addInfo(alongGameInfo)
             self.__addInfo(normMethodInfo)
 
+        #if we have alongInformation scaling and number of rows == 1 -> can't normalize
+        if not alongGame and dataToNormalize.shape[0] == 1:
+            return dataToNormalize
+
 
         #if we want to do stuff along the game, transpose data
         if alongGame:
+            #if #columns == 1 we cant do normalization along games, so just return value
+            if dataToNormalize.shape[1] == 1:
+                return dataToNormalize
             dataToNormalize = np.transpose(dataToNormalize)
         
         if normMethod == "Min-Max":
-            maxPerformances = np.max(dataToNormalize, axis=0)
-            minPerformances = np.min(dataToNormalize, axis=0) 
-            normalizedData = (dataToNormalize - minPerformances)/ (maxPerformances - minPerformances)
+            #min-max only makes sense with at least 3 samples
+            if dataToNormalize.shape[0] < 3:
+                normalizedData = dataToNormalize
+            else:
+                maxPerformances = np.max(dataToNormalize, axis=0)
+                minPerformances = np.min(dataToNormalize, axis=0) 
+                normalizedData = (dataToNormalize - minPerformances)/ (maxPerformances - minPerformances)
         elif normMethod == "Standard":
             scaler = StandardScaler()
             normalizedData = scaler.fit_transform(dataToNormalize)
@@ -194,7 +209,7 @@ class AtariGamesClustering:
 
 
     def getData(self):
-        return self.data
+        return np.copy(self.data)
 
     def setData(self, data, startIndex=0, endIndex=-1):
         """Sets the original data to the input data at the specified indexes
@@ -205,18 +220,34 @@ class AtariGamesClustering:
             endIndex (int, optional): [End index of overwriting]. Defaults to -1.
         """
 
+
         #check that indexes aren't weird
         if (startIndex >= endIndex and endIndex != -1) or startIndex < 0 or endIndex > self.data.shape[1]:
             raise ValueError("Either start index or end index is non valid")
-
         #check that size of data and indexes match 
-        if endIndex != data.shape[1] or data.shape[0] != self.data.shape[0]:
+        if endIndex+1 != data.shape[1] or data.shape[0] != self.data.shape[0]:
             raise ValueError("Non matching sizes")
 
         #make index inclusive not exclusive
         if endIndex != -1:
             endIndex += 1
+
         self.data[:, startIndex:endIndex] = data
+
+
+    def makeFileName(self, clusterDataName):
+        norm = self.getNormalization()
+        cluster = self.getClusterAlgorithm()
+        featuremethod = self.__getFeatureMethod()
+        along = None
+        if norm[1]:
+            along = "AlongGame"
+        else:
+            along = "AlongInfo"
+
+        fileName = f"{clusterDataName}_{cluster}_{along}_{featuremethod}"
+        return fileName
+
 
 
 
@@ -280,7 +311,6 @@ class AtariGamesClustering:
 
         #insert labels
         dataFrame.insert(startIndex, "Categories", labels, allow_duplicates=True)
-
 
         #convert to csv needed for heatmap 
         heatmap = scoreVisualisation.catVis(dataFrame, False, False)
@@ -386,7 +416,12 @@ class AtariGamesClustering:
             model = self.DBSCANAlgo(normedData, needElbow=needEpsilon)
         
         labels = model.fit_predict(normedData)
-        score = silhouette_score(normedData, labels)
+
+        #if #labels == 1 -> score is -1, because we have no information from clustering 
+        if np.unique(labels).size == 1:
+            score = -1
+        else:
+            score = silhouette_score(normedData, labels)
         return labels, score
 
     def __incrementSelections(self):
@@ -395,6 +430,12 @@ class AtariGamesClustering:
     def __getCountFeatureSelection(self):
         return self.numberFeatureSelections
 
+
+    def __setFeatureMethod(self, method):
+        self.featureEngineerer = method
+
+    def __getFeatureMethod(self):
+        return self.featureEngineerer
 
     def featureEngineerer(self, method="pearson", writeInfo = False):
         """Calculates feature selected data from the original data
@@ -407,7 +448,7 @@ class AtariGamesClustering:
         if self.__getCountFeatureSelection() > 0:
             self.__resetData()
         self.__incrementSelections()
-
+        self.__setFeatureMethod(method)
         if method == "pca":
             featureSelector = PCA(n_components=0.95, svd_solver="full")
             featureSelected = featureSelector.fit_transform(features)
@@ -467,8 +508,13 @@ class AtariGamesClustering:
         indicesToKeep = []
         bestScoreAll = -np.inf
         iterations = 0
+
         
         while len(indicesToKeep) < toKeep and iterations != 5:
+            #ugly but needed: for DBSCAN we set for every iteration epsilon to None because for new features we need new epsilon
+            self.__setDBSCANEpsilon(None)
+
+
             #every new iteration we keep track of bestScore
             iterations += 1
             bestScore = -np.inf
@@ -488,11 +534,13 @@ class AtariGamesClustering:
             if bestScore > bestScoreAll:
                 bestScoreAll = bestScore
                 indicesToKeep.append(indexToKeep)
+            #if the score didn't get better, we already have optimal amount of features
+            else:
+                break
 
         featureInfo = f"Features kept are: {featureNames[indicesToKeep]}" 
+        print(featureInfo)
 
-        #little ugly but whateeeveeer, set needEpsilon to True by None
-        self.__setDBSCANEpsilon(None)
 
 
         if writeInfo:
