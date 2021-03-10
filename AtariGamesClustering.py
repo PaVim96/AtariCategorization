@@ -27,6 +27,8 @@ class AtariGamesClustering:
             dataPath (filePath): [path to CSV-File, used as data]
             saveFileName ([type]): [filename to save work in]
         """
+
+        self.dataFile = None
         self.info = []
         self.numberNormalizations = 0
         self.numberCategorizations = 0
@@ -50,6 +52,11 @@ class AtariGamesClustering:
         self.data = np.copy(self.originalData)
 
     def setClusterAlgorithm(self, methodName):
+        """Sets the cluster Algorithm, needs to be called before calling Clustering(...) method
+
+        Args:
+            methodName (String): [Methodname of clustering, valid: {"KMeans", "KMedoids", "GMM", "DBSCAN"}]
+        """
         self.__checkCategMethodVal(methodName)
         self.AlgoType = methodName
 
@@ -62,6 +69,13 @@ class AtariGamesClustering:
 
     
     def setNormalization(self, normType, alongGame):
+        """Sets the type of normalization for use in Methods which normalize data:
+        Clustering, optimalParamClustering, etc..
+
+        Args:
+            normType (String): [Normalization type. Valid: {"Min-Max", "Standard", "NoNorm"}]
+            alongGame (Bool): [Whether to normalize sample-wise or feature-wise]
+        """
         self.__checkNormVal(normType)
         self.NormType = normType
         self.AlongGame = alongGame
@@ -73,16 +87,60 @@ class AtariGamesClustering:
         else:
             return normalization
 
-    def convertDRLScores(self, normalizationCSVPath, startIndexes=None, endIndexes = None, writeInfo=False):
+    def __checkFileCompatibility(self, baselineCSV):
+        """Checks compatibility of original data file and baseline file. If data isn't in right format to begin with, give warning
+
+        Args:
+            baselineCSV (String): [File in ./BaselineNormalizations]
+
+        Returns:
+            [Bool]: [If both data files are in valid format, check whether they match]
+        """
+
+        warningMessage = lambda file :  f"WARNING! {file} not in desired Format, cannot check baseline compatibility"
+        #we can only really check if formats are ok if format was followed 
+        if "_" in self.dataFile and "_" in baselineCSV:
+            values = self.dataFile.split("_")
+            values2 = baselineCSV.split("_")
+            if len(values) != 2 or len(values2) != 3:
+                if len(values) != 2:
+                    warningMessage(values)
+                else:
+                    warningMessage(values2)
+                return True
+            else:
+                datatype1 = values[0]
+                datatype2 = values2[0]
+
+                eval1 = values[1]
+                eval2 = values[2]
+
+                if (datatype1 != datatype2) or (eval1 != eval2):
+                    print("Baseline and original Data aren't of same types, please check validity of data")
+                    return False
+        else:
+            orgOk = "_" in self.dataFile
+            if orgOk:
+                warningMessage(baselineCSV)
+            else:
+                warningMessage(self.dataFile)
+            return True
+
+    def convertDRLScores(self, baselineCSV, startIndexes=None, endIndexes = None, writeInfo=False):
         """Converts Raw DRL-Scores contained in the original data to normalized data (human-normalized for example)
 
         Args:
-            startIndexes (List): [List of start indexes. Every start index indicates the first column of DRL-Agent scores of some evaluation type to normalize on. Minimum possible index is always 1 (since Games are 0)]
-            endIndexes ([type]): [List of end indexes (! inclusive !). Analogous to start indexes]
-            normalizationCSVPath (String): [A csv file in ./BaselineData. Number of columns needs to be equal to 2*size(startIndexes)+1]
+            normalizationCSVPath (String): [A csv file in ./BaselineData]
+            startIndexes (List, defaults to None): [List of start indexes. Every start index indicates the first column of DRL-Agent scores of some evaluation type to normalize on.
+                                                    Minimum possible index is always 1 (since Games are 0). If None, whole data is replaced]
+            endIndexes (List, defaults to None): [List of end indexes (! inclusive !). Analogous to start indexes]
         """
 
+        path = f"./BaselineNormalizations/{baselineCSV}"
+        isOk = self.__checkFileCompatibility(baselineCSV)
 
+        if not isOk:
+            raise ValueError("Baseline CSV and original data CSV don't match")
         #first a lot of checks 
         #check lists 
         indexesAreNone = (startIndexes is None) and (endIndexes is None)
@@ -96,7 +154,7 @@ class AtariGamesClustering:
                 raise ValueError("Lists don't match")
 
 
-        baselineFrame = pd.read_csv(normalizationCSVPath)
+        baselineFrame = pd.read_csv(path)
         #check that size is right for data 
         indexSize = len(baselineFrame.columns)
         
@@ -117,7 +175,7 @@ class AtariGamesClustering:
             raise ValueError("Format incorrect: Columns need to be [Baseline1, Randomscore1, (Baseline2, Randomscore2, ...)]")
 
 
-        baselineInfo = f"Scores were normalized with data from {normalizationCSVPath}"
+        baselineInfo = f"Scores were normalized with data from {path}"
         #we only need to check if we have complex baseline normalization (more than a single one)
         needCheck = (startIndexes is not None) and endIndexes is not None
         #if we dont need a check stuff gets easier
@@ -127,7 +185,7 @@ class AtariGamesClustering:
 
             data = self.getData()
             newData = (data - randomScore) / (baseScore - randomScore)
-            self.setData(newData)
+            self.__setData(newData)
             if writeInfo:
                 self.__addInfo(baselineInfo)
             return
@@ -153,18 +211,16 @@ class AtariGamesClustering:
 
             currData = data[:, startIndex:endIndex+1]
             newData = (currData - currRandomScore) / (currBaselineScore - currRandomScore)
-            self.setData(newData, startIndex, endIndex)
+            self.__setData(newData, startIndex, endIndex)
             if writeInfo:
                 self.__addInfo(baselineInfo)
 
     
     def __normalizeData(self, dataToNormalize, writeInfo=False):
-        """Normalizes data
+        """Normalizes data. setNormalization(...) should be called beforehand (!)
 
         Args:
             dataToNormalize ((g,f) numpy-Array): [The data to normalize: g games and for every game f features]
-            normMethod (String): [The type of normalization to use: [Min-Max, Softmax, Standard, XY-Softmax, NoNorm]]
-            alongGame (Boolean): [Whether to normalize along games (True) or not]
             writeInfo (Boolean, Defaults to False): [Whether to add info or not]
         Returns:
             normalizedData ((g,f) numpy-Array): [Normalized data]
@@ -172,6 +228,7 @@ class AtariGamesClustering:
 
 
         normMethod, alongGame = self.getNormalization()
+        self.__checkNormVal(normMethod)
 
         self.numberNormalizations += 1 
 
@@ -215,13 +272,25 @@ class AtariGamesClustering:
         return normalizedData
 
     def __resetData(self):
+        """Resets the data to the original data from the input CSV
+        """
         self.data = self.originalData
 
 
     def __getListOfGames(self):
+        """Returns list of game names present in original CSV
+
+        Returns:
+            [LIst]: [Game names]
+        """
         return self.listOfGameNames
 
     def __getInfo(self):
+        """Returns the info written from methods
+
+        Returns:
+            [String]: [Current Info]
+        """
         return self.info
 
     def __getFeatureNames(self):
@@ -229,9 +298,14 @@ class AtariGamesClustering:
 
 
     def getData(self):
+        """Returns current data
+
+        Returns:
+            [(g,m) Numpy-Array]: [Current data]
+        """
         return np.copy(self.data)
 
-    def setData(self, data, startIndex=0, endIndex=-1):
+    def __setData(self, data, startIndex=0, endIndex=-1):
         """Sets the original data to the input data at the specified indexes
 
         Args:
@@ -258,7 +332,13 @@ class AtariGamesClustering:
             self.data[:, startIndex:endIndex] = data
 
 
-    def makeFileName(self, clusterDataName):
+    def makeFileName(self):
+        """[creates corresponding Filename that should be used to save, depending on normalization, clustering method etc]
+
+        Returns:
+            [String]: [Name of file]
+        """
+        clusterDataName = self.dataFile
         norm = self.getNormalization()
         cluster = self.getClusterAlgorithm()
         featuremethod = self.__getFeatureMethod()
@@ -273,6 +353,16 @@ class AtariGamesClustering:
 
 
     def calculateBestAlgorithm(self, data, useSFS=False, writeInfo=False):
+        """Calculates the best Algorithm, regarding scoring measures
+
+        Args:
+            data [(g,m) numpy-Array]: [Data used to calculate the best clustering. Must be non-normalized (!)]
+            useSFS (bool, optional): [Whether to use Sequential Feature Selection while calculating best Algorithm]. Defaults to False.
+            writeInfo (bool, optional): [Whether to write info of the best cluster Algorithm]. Defaults to False.
+
+        Returns:
+            [(g,) numpy-Array]: [Labels of the resulting best clustering]
+        """
         bestNorm = None
         bestClusterAlgo = None
         bestClusterParam = None
@@ -287,8 +377,8 @@ class AtariGamesClustering:
                     self.setNormalization(norm, alongGame)
                     if useSFS:
                         data = self.__sfsSelection(data, self.listOfFeatureNames)
-                    clusterParam = self.optimalKSilhouette(data)
-                    labels, _ = self.calculateCategories(data, clusterParam)
+                    clusterParam = self.optimalClusterParam(data)
+                    labels, _ = self.cluster(data, clusterParam)
                     currentScore = self.calcScore(data, labels, clusterParam)
 
                     #check if score is better than current best
@@ -305,8 +395,9 @@ class AtariGamesClustering:
         if writeInfo:
             self.__addInfo(bestAlgoInfo)
         normedData = self.__normalizeData(data, writeInfo)
-        labels, _ = self.calculateCategories(normedData, n=clusterParam, writeInfo=writeInfo)
+        labels, _ = self.cluster(normedData, hyperParam=clusterParam, writeInfo=writeInfo)
         finalScore = self.calcScore(normedData, labels, bestClusterParam, writeInfo=writeInfo)
+        print(f"Final score of your clustering is: {finalScore}")
         return labels
 
 
@@ -314,6 +405,11 @@ class AtariGamesClustering:
 
 
     def writeInfo(self, fileName):
+        """[Write the categorization info into CategInfo/fileName]]
+
+        Args:
+            fileName (String): [Name of output .txt file]
+        """
         info = self.__getInfo()
         f = open(f"./CategInfo/{fileName}.txt", "w")
         for infoString in info:
@@ -394,21 +490,15 @@ class AtariGamesClustering:
         if normMethod not in self.getPossibleNormalizations():
             raise ValueError(f"This type of Normalization {normMethod} is not supported, supported is: {self.getPossibleNormalizations()}")
 
-    #TODO: 
-    #Refactor to "optimalClusterParam"
-    def optimalKSilhouette(self, data, writeInfo = False):
-        """Calculates optimal number of clusters k with respect to the silhouette score and the number k. 
-        If scores for two k1 and k2 are similar but k2 has way more clusters we prefer k2.
+    def optimalClusterParam(self, data, writeInfo = False):
+        """Calculates optimal hyperparameter of the corresponding Cluster Algorithm set currently. For DBSCAN -> epsilon (int) by Elbow Method. For others -> k (int) by weighted Mean Silhouette Coefficient
 
         Args:
             data ((g,f) numpy-Array): [The data used to cluster games]
-            normMethod (String): [Method to normalize data with]
-            alongGame (Boolean): [Whether to normalize along game or not]
-            categType (String): [Type of clustering used. Only relevant for the metric used to calculate the silhouette score]
             writeInfo (Bool, defaults to False): [Whether to write info in later info file]
 
         Returns:
-            k (Int): [Optimal number of clusters k, regarding silhouette score and number of clusters k]
+            param (Value): [k for all Algorithms except DBSCAN. epsilon for DBSCAN]
         """
 
 
@@ -423,7 +513,7 @@ class AtariGamesClustering:
         upperBound = int(normalizedData.shape[0] / 2)
         
         for i in range(2, upperBound):
-            _, currScore = self.calculateCategories(normalizedData, i)
+            _, currScore = self.cluster(normalizedData, i)
             silhouetteScores.append(currScore)
         
         silhouetteScores = np.array(silhouetteScores).squeeze()
@@ -454,16 +544,12 @@ class AtariGamesClustering:
         return self.metric
 
 
-    #TODO: ADD DBSCAN
-    def calculateCategories(self, data, n, writeInfo=False):
+    def cluster(self, data, hyperParam, writeInfo=False):
         """Clusters normedData by the specified clustering method
 
         Args:
             data ((g,f) numpy-Array): [Feature Matrix of data for g games]
-            normMethod (String): [The method to normalize the data with]
-            alongGame (Boolean): [Whether to normalize along games or not]
-            n (Int): [Number of clusters to use]
-            catMethod (String): [Clustering Algorithm to use]
+            hyperParam (Value): [Number of clusters to use for all Algorithms except DBSCAN. For DBSCAN epsilon]
             writeInfo (Boolean): [Whether to add information to later information file]
         Returns:
             labels ((g,) numpy-Array): [Labels for the data]
@@ -491,7 +577,7 @@ class AtariGamesClustering:
             metric = "manhattan"
             model = KMedoids(n, metric=metric)
         elif catMethod == "DBSCAN":
-            model = self.DBSCANAlgo(normedData, epsilon = n, writeInfo=writeInfo)
+            model = self.__DBSCANAlgo(normedData, epsilon = n, writeInfo=writeInfo)
         
         labels = model.fit_predict(normedData)
         self.__setMetric(metric)
@@ -520,7 +606,8 @@ class AtariGamesClustering:
         return ["pca", "pearson"]
 
     def featureEngineerer(self, method="pearson"):
-        """Calculates feature selected data from the original data
+        """Calculates feature selected data from the input data.
+        If called more than once, data is resetted before execution (this removes all normalizations etc.!)
 
         Args:
             method (string): [Method to use when doing feature selection]
@@ -605,8 +692,8 @@ class AtariGamesClustering:
                 #construct array out of indicestoKeep and current index
                 #len == 0 -> just index
                 currentData = data[:, currentIndexArray]
-                k = self.optimalKSilhouette(currentData, writeInfo=writeInfo)
-                _, score = self.calculateCategories(currentData, n=k, writeInfo=writeInfo)
+                k = self.optimalClusterParam(currentData, writeInfo=writeInfo)
+                _, score = self.cluster(currentData, hyperParam=k, writeInfo=writeInfo)
                 if score > bestScore:
                     bestScore = score
                     indexToKeep = featureIndex
@@ -624,6 +711,14 @@ class AtariGamesClustering:
 
 
     def __DBSCANElbow(self, normalizedData):
+        """Gives user possibility to get optimal epsilon by Elbow-Method. If not, default-Epsilon is used
+
+        Args:
+            normalizedData ((g,m) numpy-Array): [Normalized Data to calculate Elbow with]
+
+        Returns:
+            [float]: [Epsilon for DBSCAN]
+        """
         neighbors = NearestNeighbors(n_neighbors=3)
         nbrs = neighbors.fit(normalizedData)
         distances, _ = nbrs.kneighbors(normalizedData)
@@ -633,12 +728,25 @@ class AtariGamesClustering:
         print("Extract from the following plot the elbow-Point for the DBSCAN Algorithm")
         plt.plot(distances)
         plt.show()
-
         epsilon = input("Please Input the optimal Epsilon obtained by the Elbow-Plot:\n")
-        epsilon = float(epsilon)
+        try:
+            epsilon = float(epsilon)
+        except(ValueError):
+            print("Input value was not valid, using default epsilon (probably leads to poor performance")
+            epsilon = 0.5
         return epsilon
 
-    def DBSCANAlgo(self, normalizedData, epsilon = None, writeInfo=False):
+    def __DBSCANAlgo(self, normalizedData, epsilon = None, writeInfo=False):
+        """Calculates the DBSCAN Algorithm. Depending on whether Epsilon is needed, User will set Epsilon by Elbow-Method
+
+        Args:
+            normalizedData ((g,m) numpy-Array): [Normalized data to cluster with]
+            epsilon ([Float], optional): [Epsilon to use for DBSCAN Algorithm]. Defaults to None.
+            writeInfo (bool, optional): [Whether to save used epsilon in config file]. Defaults to False.
+
+        Returns:
+            [type]: [description]
+        """
         self.__setDBSCANEpsilon(epsilon)
         needElbow = self.__needDBSCANEpsilon()
         if needElbow:
@@ -678,6 +786,14 @@ class AtariGamesClustering:
 
 
     def loadClustering(self, csvPath):
+        """Loads a clustering from a CSV. CSV should have 2 columns: [Games, Labels]
+
+        Args:
+            csvPath (String): [File in .CalculatedCats/]
+
+        Returns:
+            [(g,)]: [Numpy-Array containing the labels of the CSV]
+        """
         frame = pd.read_csv(csvPath)
         labels = frame.iloc[:, 1].to_numpy()
         return labels.reshape((-1,1)).squeeze()
@@ -697,6 +813,17 @@ class AtariGamesClustering:
             return (silhouette_score(data, labels, metric)+1)/2
 
     def calcScore(self, data, labels, clustParam, writeInfo=False):
+        """Calculates an Algorithm score from different metrics
+
+        Args:
+            data ((g,m) numpy-array): [Unnormalized data to calculate score with]
+            labels ((g,) numpy-Array): [Labels of the Clustering]
+            clustParam (Cluster Param to cluster with): [Hyperparameter of corresponding cluster algorithm]
+            writeInfo (bool, optional): [description]. Defaults to False.
+
+        Returns:
+            [Float]: [Score of the clustering algorithm. Best value is 1]
+        """
         normedData = self.__normalizeData(data)
         score1 = self.__davies_bouldin_score(normedData, labels)
         metric = self.__getMetric()
@@ -717,14 +844,12 @@ class AtariGamesClustering:
     #https://people.eecs.berkeley.edu/~jordan/sail/readings/luxburg_ftml.pdf
     #http://citeseerx.ist.psu.edu/viewdoc/download;jsessionid=9128DE558BAA6F3B88A36718F4FD858D?doi=10.1.1.331.1569&rep=rep1&type=pdf
     #second paper p.6-7
-    def calcRobustness(self, data, n):
+    def calcRobustness(self, data, hyperParam):
         """Calculates the robustness of a clustering algorithm
 
         Args:
             data ((g,f) np-array): [The data used for clustering]
-            normMethod (String): [The method to normalize the data with]
-            alongGame (Boolean): [Whether to normalize along games or not]
-            n (int): [number of clusters k to use]
+            hyperParam (Value): [Hyperparameter used for Clustering]
             categType (String): [type of clustering to use]
         Returns:
             performance (float): [Robustness score of clustering, between [0,1]]
@@ -734,21 +859,24 @@ class AtariGamesClustering:
         #we keep 75% information for every iteration
         sampleSize = int(3*data.shape[0]/4)
 
-        #if number k is greater than samples we have, we cant calculate clustering -> bad clustering
-        if n >= sampleSize:
-            return 0
+        #only check if type of clustering is not DBSCAN
+        method = self.getClusterAlgorithm()
+        if method != "DBSCAN":
+            #if number k is greater than samples we have, we cant calculate clustering -> bad clustering
+            if hyperParam >= sampleSize:
+                return 0
         
         wholeSim = 0
         maxAmount = 100
 
-        groundTruth, _ = self.calculateCategories(data, n)
+        groundTruth, _ = self.cluster(data, hyperParam)
 
         for _ in range(maxAmount):
             #generate bootstrap sample indices, without replacement for numerical stability
             x_star = random.sample(range(0, data.shape[0]), sampleSize)
             samples = data[x_star, :]
             assert samples.shape[1] == data.shape[1], "sampling on stability testing is wrong"
-            compareLabels, _, = self.calculateCategories(samples, n) 
+            compareLabels, _, = self.cluster(samples, hyperParam=hyperParam) 
             #taken from paper
             #indices that were used in the to compare clustering
             #take indices ground truth clustering were indices were used for bootstrapped clustering
@@ -809,14 +937,15 @@ class AtariGamesClustering:
 
 
 
-
-
-
-
     def __addInfo(self, infoString):
         self.info.append(infoString)
 
     def __prepData(self, csvPath):
+        #set filename of class 
+        self.dataFile = csvPath
+        data = f"./CatData/{csvPath}"
+        self.__addInfo(f"Data used from {data}")
+
         data = pd.read_csv(csvPath)
         performances = data.iloc[:, 1:].to_numpy()
         perfIndex = data.iloc[:, 1:].columns.to_numpy()
