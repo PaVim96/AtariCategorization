@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import scoreVisualisation
+import os
 import random
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
@@ -363,6 +364,7 @@ class AtariGamesClustering:
         Returns:
             [(g,) numpy-Array]: [Labels of the resulting best clustering]
         """
+
         bestNorm = None
         bestClusterAlgo = None
         bestClusterParam = None
@@ -410,6 +412,14 @@ class AtariGamesClustering:
         Args:
             fileName (String): [Name of output .txt file]
         """
+
+        counter = 0
+        alreadyExists = os.path.isfile(fileName)
+        while alreadyExists:
+            counter += 1
+            fileName = f"{fileName}{counter}"
+            alreadyExists = os.path.isfile(fileName)
+
         info = self.__getInfo()
         f = open(f"./CategInfo/{fileName}.txt", "w")
         for infoString in info:
