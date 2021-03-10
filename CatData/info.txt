@@ -1,3 +1,0 @@
-Data should be in the following format:
-- First column should always be list of Game Names
-- Columns should be different features
