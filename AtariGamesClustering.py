@@ -12,6 +12,7 @@ from sklearn.mixture import GaussianMixture
 from sklearn.metrics import silhouette_score, davies_bouldin_score
 from sklearn.neighbors import NearestNeighbors
 import matplotlib.pyplot as plt
+import time
 
 
 class AtariGamesClustering:
@@ -156,7 +157,6 @@ class AtariGamesClustering:
                 print(f"From {self.listOfFeatureNames[startIndexes[i]]} to {self.listOfFeatureNames[endIndexes[i]]}")
             print("Is this right? enter [y] or [n]")
             yOrN = input("")
-            print("INPUT IS", yOrN)
             while "y" not in yOrN and "n" not in yOrN:
                 print("Input is invalid, please reenter:")
                 yOrN = input("")
@@ -379,6 +379,7 @@ class AtariGamesClustering:
         Args:
             data [(g,m) numpy-Array]: [Data used to calculate the best clustering. Must be non-normalized (!)]
             useSFS (bool, optional): [Whether to use Sequential Feature Selection while calculating best Algorithm]. Defaults to False.
+            useDBSCAN (bool, optinal): [Whether to include DBSCAN in the algorithm to use. Will procude additional overhead as Elbow-Method will be needed]
             writeInfo (bool, optional): [Whether to write info of the best cluster Algorithm]. Defaults to False.
 
         Returns:
@@ -386,9 +387,11 @@ class AtariGamesClustering:
         """
 
         if useDBSCAN:
-            print("ATTENTION!ATTENTION!ATTENTION!ATTENTION!ATTENTION!ATTENTION!ATTENTION!ATTENTION!ATTENTION")
+            print("----------------------------------------------------------------------------------------")
+            print("ATTENTION!   ATTENTION!  ATTENTION!  ATTENTION!  ATTENTION!  ATTENTION!  ATTENTION!")
             print("YOU ENABLED DBSCAN, THEREFORE YOU WILL NEED TO CALCULATE MANY HYPERPARAMETERS WITH ELBOW")
             print("----------------------------------------------------------------------------------------")
+            time.sleep(5)
 
         bestNorm = None
         bestClusterAlgo = None
