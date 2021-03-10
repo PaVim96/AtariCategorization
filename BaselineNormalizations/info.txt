@@ -1,4 +1,6 @@
 Data for Baseline Normalization of Algorithm Scores
 
 Naming Scheme:
--	If File contains "Mixed" -> Data is meant for Clusterdata which contains Difficulty, 	Discrimination Coefficient (since those have less Games)
+- see CatData/info.txt
+
+HB -> HumanBaseline

@@ -1,0 +1,21 @@
+Naming Scheme:
+
+X_Y.csv:
+X = {A, M, GL}
+ 
+A := All Games -> only DRL-Scores
+M := Mixed -> DRL-Scores + Difficulty, Discrimination Coefficient
+GL := Games Left -> DRL-Scores from Games where Difficulty, Discrimination Coefficient is not defined 
+
+Y = {HE,NE,BE}
+
+HE := Human Evaluation -> Scores obtained from Agents running on Human-Evaluation
+NE := Noop Evaluation -> Scores with Noop Evaluation
+BE := Both Evaluations -> Both scores
+
+
+Data-Format:
+1: one game per row
+2: first column should be game names
+3: first row = ["Game", F1,...,FN] where F1 is the Feature Name
+
