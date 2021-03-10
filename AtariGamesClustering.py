@@ -353,7 +353,7 @@ class AtariGamesClustering:
         return fileName
 
 
-    def calculateBestAlgorithm(self, data, useSFS=False, writeInfo=False):
+    def calculateBestAlgorithm(self, data, useSFS=False, useDBSCAN=False, writeInfo=False):
         """Calculates the best Algorithm, regarding scoring measures
 
         Args:
@@ -371,8 +371,8 @@ class AtariGamesClustering:
         bestScore = -np.inf
         #iterate over all possibilities 
         for clusterAlgo in self.getPossibleCatAlgorithms():
-            #if clusterAlgo == "DBSCAN":
-            #    continue
+            if clusterAlgo == "DBSCAN" and not useDBSCAN:
+                continue
             self.setClusterAlgorithm(clusterAlgo)
             for norm in self.getPossibleNormalizations():
                 for alongGame in [True, False]:
