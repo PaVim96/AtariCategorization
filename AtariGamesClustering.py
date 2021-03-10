@@ -561,7 +561,7 @@ class AtariGamesClustering:
 
         if writeInfo:
             infoStart = "Clustering Info:"
-            infoString = f"Categorization was done with {catMethod}, with hyperparameter: {n}"
+            infoString = f"Categorization was done with {catMethod}, with hyperparameter: {hyperParam}"
             self.__addInfo(infoStart)
             self.__addInfo(infoString)
 
