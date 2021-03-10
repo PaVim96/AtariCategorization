@@ -13,6 +13,7 @@ from sklearn.metrics import silhouette_score, davies_bouldin_score
 from sklearn.neighbors import NearestNeighbors
 import matplotlib.pyplot as plt
 import time
+import warnings
 
 
 class AtariGamesClustering:
@@ -30,6 +31,8 @@ class AtariGamesClustering:
             saveFileName ([type]): [filename to save work in]
         """
 
+        #CAREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE!
+        warnings.simplefilter(action="ignore", category=FutureWarning)
         self.dataFile = None
         self.info = []
         self.numberNormalizations = 0
@@ -290,10 +293,10 @@ class AtariGamesClustering:
 
         return normalizedData
 
-    def __resetData(self):
+    def resetData(self):
         """Resets the data to the original data from the input CSV
         """
-        self.data = self.originalData
+        return np.copy(self.originalData)
 
 
     def __getListOfGames(self):
@@ -627,43 +630,38 @@ class AtariGamesClustering:
             score = self.__silhouette_score(normedData, labels, metric)
         return labels, score
 
-    def __incrementSelections(self):
-        self.numberFeatureSelections += 1
-
-    def __getCountFeatureSelection(self):
-        return self.numberFeatureSelections
-
-
-    def __setFeatureMethod(self, method):
-        self.featureMethod = method
-
-    def __getFeatureMethod(self):
-        return self.featureMethod
-
     def getPossibleFeatureMethods(self):
         return ["pca", "pearson"]
 
-    def featureEngineerer(self, method="pearson"):
+    def featureEngineerer(self, data, method="pearson", writeInfo=False):
         """Calculates feature selected data from the input data.
-        If called more than once, data is resetted before execution (this removes all normalizations etc.!)
+
 
         Args:
+            data ((g,m)): [Data to feature engineer on. Doesn't support consecutive feature engineering on same data!]
             method (string): [Method to use when doing feature selection]
+
+        Returns:
+            data ((g,m')): [Feature Engineered data]
         """
-        features = self.getData()
+        features = np.copy(data)
         featureNames = self.__getFeatureNames()
-        if self.__getCountFeatureSelection() > 0:
-            self.__resetData()
-        self.__incrementSelections()
-        self.__setFeatureMethod(method)
+
+        #check if featureNames alignes with data features
+        if featureNames.size != features.shape[1]:
+            raise ValueError("Cannot feature engineer data. Have you already applied feature engineering on this data? then reset your data!")
+
+
         featureEngInfo = f"Feature Engineering with {method}"
-        self.__addInfo(featureEngInfo)
+        if writeInfo:
+            self.__addInfo(featureEngInfo)
         if method == "pca":
             featureSelector = PCA(n_components=0.95, svd_solver="full")
             featureSelected = featureSelector.fit_transform(features)
             leftFeatures = f"Features still left are {featureNames}"
-            self.__addInfo(leftFeatures)
-            self.data = np.copy(featureSelected)
+            if writeInfo:
+                self.__addInfo(leftFeatures)
+            return np.copy(featureSelected)
         elif method == "pearson":
             dataframe = pd.DataFrame(data=features, columns=featureNames)
             correlation = np.abs(dataframe.corr(method="pearson").to_numpy())
@@ -688,9 +686,10 @@ class AtariGamesClustering:
             newFeatures = np.delete(features, indexes, axis=1)
             newFeatureNames = np.delete(featureNames, indexes, axis=0)
             leftFeatures = f"Features still left: {newFeatureNames}"
-            self.__addInfo(leftFeatures)
+            if writeInfo:
+                self.__addInfo(leftFeatures)
             #not with setData() because we override the original data!
-            self.data = np.copy(newFeatures)
+            return np.copy(newFeatures)
         else:
             raise ValueError(f"{method} as Method for feature selection not known")
 
