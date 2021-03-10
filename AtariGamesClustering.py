@@ -114,11 +114,12 @@ class AtariGamesClustering:
                 datatype2 = values2[0]
 
                 eval1 = values[1]
-                eval2 = values[2]
-
+                eval2 = values2[2]
                 if (datatype1 != datatype2) or (eval1 != eval2):
                     print("Baseline and original Data aren't of same types, please check validity of data")
                     return False
+                else:
+                    return True
         else:
             orgOk = "_" in self.dataFile
             if orgOk:
@@ -137,7 +138,7 @@ class AtariGamesClustering:
             endIndexes (List, defaults to None): [List of end indexes (! inclusive !). Analogous to start indexes]
         """
 
-        path = f"./BaselineNormalizations/{baselineCSV}"
+        path = f"./BaselineNormalizations/{baselineCSV}.csv"
         isOk = self.__checkFileCompatibility(baselineCSV)
 
         if not isOk:
@@ -148,6 +149,22 @@ class AtariGamesClustering:
         if not indexesAreNone:
             if (not isinstance(startIndexes, list)) or (not isinstance(endIndexes, list)):
                 raise TypeError("Indexes need to be lists")
+            #inform user about feature range
+            print("-------------------------------------")
+            print("Features to be changed are")
+            for i in range(len(startIndexes)):
+                print(f"From {self.listOfFeatureNames[startIndexes[i]]} to {self.listOfFeatureNames[endIndexes[i]]}")
+            print("Is this right? enter [y] or [n]")
+            yOrN = input("")
+            print("INPUT IS", yOrN)
+            while "y" not in yOrN and "n" not in yOrN:
+                print("Input is invalid, please reenter:")
+                yOrN = input("")
+            if "n" in yOrN:
+                raise ValueError("Please modify the indexes and start the program again")
+
+                
+            
 
         if not indexesAreNone:
             #check matching list sizes 
@@ -161,8 +178,9 @@ class AtariGamesClustering:
         
         #2*listSize + 1 because CSV contains column with game names
         #for simple case simply == 3 
-        if indexSize != 3 or (not indexesAreNone and indexSize != 2*len(startIndexes)+1):
-            raise ValueError("CSV isn't in right format")
+        if indexSize != 3:
+            if not indexesAreNone and indexSize != 2*len(startIndexes)+1:
+                raise ValueError("CSV isn't in right format or indexes are wrong")
 
 
         baselineData = baselineFrame.iloc[:, 1:].to_numpy()
@@ -316,12 +334,14 @@ class AtariGamesClustering:
         """
 
 
+
         #check that indexes aren't weird
         if (startIndex >= endIndex and endIndex != -1) or startIndex < 0 or endIndex > self.data.shape[1]:
             raise ValueError("Either start index or end index is non valid")
         #check that size of data and indexes match 
-        if (endIndex != -1 and endIndex+1 != data.shape[1]) or data.shape[0] != self.data.shape[0]:
-            raise ValueError("Non matching sizes")
+        if endIndex != -1:
+            if data.shape != self.data[:, startIndex:endIndex+1].shape:
+                raise ValueError("Non matching sizes")
 
         #make index inclusive not exclusive
         if endIndex != -1:
@@ -364,6 +384,11 @@ class AtariGamesClustering:
         Returns:
             [(g,) numpy-Array]: [Labels of the resulting best clustering]
         """
+
+        if useDBSCAN:
+            print("ATTENTION!ATTENTION!ATTENTION!ATTENTION!ATTENTION!ATTENTION!ATTENTION!ATTENTION!ATTENTION")
+            print("YOU ENABLED DBSCAN, THEREFORE YOU WILL NEED TO CALCULATE MANY HYPERPARAMETERS WITH ELBOW")
+            print("----------------------------------------------------------------------------------------")
 
         bestNorm = None
         bestClusterAlgo = None
@@ -577,17 +602,17 @@ class AtariGamesClustering:
 
         metric = "euclidean"
         if catMethod == "KMeans":
-            n = int(n)
+            n = int(hyperParam)
             model = KMeans(n)
         elif catMethod == "GMM":
-            n = int(n)
+            n = int(hyperParam)
             model = GaussianMixture(n, random_state=0, covariance_type="tied")
         elif catMethod == "KMedoids":
-            n = int(n)
+            n = int(hyperParam)
             metric = "manhattan"
             model = KMedoids(n, metric=metric)
         elif catMethod == "DBSCAN":
-            model = self.__DBSCANAlgo(normedData, epsilon = n, writeInfo=writeInfo)
+            model = self.__DBSCANAlgo(normedData, epsilon = hyperParam, writeInfo=writeInfo)
         
         labels = model.fit_predict(normedData)
         self.__setMetric(metric)
@@ -847,7 +872,7 @@ class AtariGamesClustering:
         if writeInfo:
             self.__addInfo(scoreStartInfo)
             self.__addInfo(scoreInfo)
-        finalScore = (30*score1/100) + (30*score2/100) + (30*robustness/100) + (10*instanceScore/100)
+        finalScore = (25*score1/100) + (20*score2/100) + (50*robustness/100) + (5*instanceScore/100)
         return finalScore
 
 
@@ -941,9 +966,8 @@ class AtariGamesClustering:
             klDivergence += uniform * np.log(uniform / currentHistogram)
         
         #constraint range to (0,1] and weight by number of samples. Ideally we assume number of categories would be samples / 4
-        weighting = uniqueLabels.size / int(numSamples / 4)
 
-        return weighting * np.exp(-klDivergence)
+        return np.exp(-klDivergence)
 
 
 
@@ -953,10 +977,10 @@ class AtariGamesClustering:
     def __prepData(self, csvPath):
         #set filename of class 
         self.dataFile = csvPath
-        data = f"./CatData/{csvPath}"
-        self.__addInfo(f"Data used from {data}")
+        dataPath = f"./CatData/{csvPath}.csv"
+        self.__addInfo(f"Data used from {dataPath}")
 
-        data = pd.read_csv(csvPath)
+        data = pd.read_csv(dataPath)
         performances = data.iloc[:, 1:].to_numpy()
         perfIndex = data.iloc[:, 1:].columns.to_numpy()
         games = data.iloc[:, 0].to_numpy()
