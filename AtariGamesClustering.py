@@ -426,7 +426,7 @@ class AtariGamesClustering:
         bestAlgoInfo = f"Best Algorithm calculation"
         if writeInfo:
             if useSFS:
-                featureInfo = f"Features kept are: {featureNames[indicesToKeep]}" 
+                featureInfo = f"Features kept are: {bestFeatures}" 
                 self.__addInfo(featureInfo)
             self.__addInfo(bestAlgoInfo)
         normedData = self.__normalizeData(data, writeInfo)
