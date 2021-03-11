@@ -1,1 +1,0 @@
-This folder will contain Information on AtariGamesClustering.py processes such as clustering or calculating the optimal amount of clusters

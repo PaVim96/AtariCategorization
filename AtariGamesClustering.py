@@ -9,11 +9,12 @@ from sklearn.cluster import KMeans, DBSCAN
 from sklearn_extra.cluster import KMedoids
 from sklearn.metrics import jaccard_score
 from sklearn.mixture import GaussianMixture
-from sklearn.metrics import silhouette_score, davies_bouldin_score
+from sklearn.metrics import silhouette_score
 from sklearn.neighbors import NearestNeighbors
 import matplotlib.pyplot as plt
 import time
 import warnings
+import webbrowser
 
 
 class AtariGamesClustering:
@@ -35,7 +36,6 @@ class AtariGamesClustering:
         warnings.simplefilter(action="ignore", category=FutureWarning)
         self.dataFile = None
         self.info = []
-        self.numberNormalizations = 0
         self.numberCategorizations = 0
         self.numberFeatureSelections = 0
         self.DBSCANEpsilon = None
@@ -43,7 +43,6 @@ class AtariGamesClustering:
         self.AlgoType = None
         self.NormType = None
         self.AlongGame = None
-        self.featureMethod = None
         self.metric = "euclidian"
 
 
@@ -248,11 +247,8 @@ class AtariGamesClustering:
             normalizedData ((g,f) numpy-Array): [Normalized data]
         """
 
-
         normMethod, alongGame = self.getNormalization()
         self.__checkNormVal(normMethod)
-
-        self.numberNormalizations += 1 
 
         #add info of methods used to information
         if writeInfo:
@@ -365,14 +361,14 @@ class AtariGamesClustering:
         clusterDataName = self.dataFile
         norm = self.getNormalization()
         cluster = self.getClusterAlgorithm()
-        featuremethod = self.__getFeatureMethod()
+
         along = None
         if norm[1]:
             along = "AlongGame"
         else:
             along = "AlongInfo"
 
-        fileName = f"{clusterDataName}_{cluster}_{along}_{featuremethod}"
+        fileName = f"{clusterDataName}_{cluster}_{along}"
         return fileName
 
 
@@ -399,6 +395,8 @@ class AtariGamesClustering:
         bestNorm = None
         bestClusterAlgo = None
         bestClusterParam = None
+        if useSFS:
+            bestFeatures = None
         bestScore = -np.inf
         #iterate over all possibilities 
         for clusterAlgo in self.getPossibleCatAlgorithms():
@@ -409,13 +407,14 @@ class AtariGamesClustering:
                 for alongGame in [True, False]:
                     self.setNormalization(norm, alongGame)
                     if useSFS:
-                        data = self.__sfsSelection(data, self.listOfFeatureNames)
+                        data, features = self.__sfsSelection(data, self.listOfFeatureNames)
                     clusterParam = self.optimalClusterParam(data)
                     labels, _ = self.cluster(data, clusterParam)
                     currentScore = self.calcScore(data, labels, clusterParam)
 
                     #check if score is better than current best
                     if currentScore > bestScore:
+                        bestFeatures = features
                         bestScore = currentScore
                         bestNorm = (norm, alongGame)
                         bestClusterAlgo = clusterAlgo
@@ -426,6 +425,9 @@ class AtariGamesClustering:
         self.setClusterAlgorithm(bestClusterAlgo)
         bestAlgoInfo = f"Best Algorithm calculation"
         if writeInfo:
+            if useSFS:
+                featureInfo = f"Features kept are: {featureNames[indicesToKeep]}" 
+                self.__addInfo(featureInfo)
             self.__addInfo(bestAlgoInfo)
         normedData = self.__normalizeData(data, writeInfo)
         labels, _ = self.cluster(normedData, hyperParam=clusterParam, writeInfo=writeInfo)
@@ -475,13 +477,13 @@ class AtariGamesClustering:
         dataFrame.to_csv(f"./CalculatedCats/{saveFileName}.csv", index=False)
 
     
-    def saveHeatmap(self, labels, saveFileName):
-        """Saves a Heatmap under Visualisations with name specified. 
+    def heatmap(self, labels, saveFileName):
+        """Saves a Heatmap. 
         The data is the original data without feature selection
 
         Args:
             labels ((g,) numpy-Array): [1d numpy-Array containing the calculated clusters]
-            saveFileName (String): [The name to save the csv under in CalculatedCats]
+            saveFileName (String, Defaults to None): [Filename to save Heatmap, under ./Heatmaps./saveFileName]
         """
 
         #first make csv containing games, original data, categories
@@ -514,8 +516,12 @@ class AtariGamesClustering:
         #convert to csv needed for heatmap 
         heatmap = scoreVisualisation.catVis(dataFrame, False, False)
 
-        #save heatmap
-        heatmap.save(f"./Visualisations/{saveFileName}.html")
+        path = f"./Heatmaps/{saveFileName}.html"
+        heatmap.save(path)
+        webbrowser.open(f"./Heatmaps/{saveFileName}.html")
+
+        
+
         self.setNormalization(currentNorm[0], currentNorm[1])
 
 
@@ -633,6 +639,49 @@ class AtariGamesClustering:
     def getPossibleFeatureMethods(self):
         return ["pca", "pearson"]
 
+    def visualize(self, labels, data, fileName=None):
+        """1D/2D Visualisation of clustering
+
+        Args:
+            labels ((g,) numpy-Array): [Labels of clustering]
+            data ((g,m) numpy-Array): [Data to visualize on]
+            fileName (String): [Filename to save visualisation under ./Visualisations. If None, vis is not saved]
+        """
+
+        normedData = self.__normalizeData(data)
+        #check if #samples match 
+        if labels.size != normedData.shape[0]:
+            raise ValueError("Mismatch between labels and data")
+    
+        currData = np.copy(normedData)
+        #pca of data to 2D
+        if currData.shape[1] > 2:
+            visPCA = PCA(n_components=2)
+            currData = visPCA.fit_transform(currData)
+        if currData.shape[1] == 1:
+            y = np.zeros((currData.shape)).squeeze()
+            x = currData.squeeze()
+            y = 5
+        else:
+            x = currData[:, 0].squeeze()
+            y = currData[:, 1].squeeze()
+        for cat in np.unique(labels):
+            plt.scatter(x[labels == cat], y[labels == cat], label=cat)
+            #annotate points with names
+        for i in range(len(self.listOfGameNames)):
+            plt.annotate(self.listOfGameNames[i], (currData[i, 0], currData[i, 1]))
+        plt.legend()
+        plt.show()
+
+        #save plt if wanted 
+        if fileName is not None:
+            path = f"./Visualisations/{fileName}.png"
+            plt.savefig(path)
+
+
+
+
+
     def featureEngineerer(self, data, method="pearson", writeInfo=False):
         """Calculates feature selected data from the input data.
 
@@ -694,7 +743,7 @@ class AtariGamesClustering:
             raise ValueError(f"{method} as Method for feature selection not known")
 
 
-    def __sfsSelection(self, data, featureNames, toKeep=5, writeInfo=False):
+    def __sfsSelection(self, data, featureNames, toKeep=5):
         """Feature Selection with Sequential Forward Selection
 
         Args:
@@ -741,10 +790,7 @@ class AtariGamesClustering:
             else:
                 break
 
-        featureInfo = f"Features kept are: {featureNames[indicesToKeep]}" 
-        if writeInfo:
-            self.__addInfo(featureInfo) 
-        return data[:, indicesToKeep]
+        return data[:, indicesToKeep], featureNames[indicesToKeep]
 
 
     def __DBSCANElbow(self, normalizedData):
@@ -835,14 +881,6 @@ class AtariGamesClustering:
         labels = frame.iloc[:, 1].to_numpy()
         return labels.reshape((-1,1)).squeeze()
 
-
-    def __davies_bouldin_score(self, data, labels):
-        #check if number cats == 1 -> return 0 
-        if np.unique(labels).size == 1:
-            return 0
-        else:
-            return 1-davies_bouldin_score(data, labels)
-
     def __silhouette_score(self, data, labels, metric):
         if np.unique(labels).size == 1:
             return 0
@@ -862,19 +900,17 @@ class AtariGamesClustering:
             [Float]: [Score of the clustering algorithm. Best value is 1]
         """
         normedData = self.__normalizeData(data)
-        score1 = self.__davies_bouldin_score(normedData, labels)
         metric = self.__getMetric()
-        score2 = self.__silhouette_score(normedData, labels, metric=metric)
+        score = self.__silhouette_score(normedData, labels, metric=metric)
         robustness = self.calcRobustness(normedData, clustParam)
         instanceScore = self.__calcInstanceScore(labels)
 
         scoreStartInfo = "Scoring:"
-        scoreInfo = f"Davies-Bouldin-Index: {score1} (best -> 1), Mean Silhouette Coefficient: {score2} (best -> 1), Robustness: {robustness} (best -> 1), InstanceScore: {instanceScore} (best -> 1)"
-        print(scoreInfo)
+        scoreInfo = f"Mean Silhouette Coefficient: {score} (best -> 1), Robustness: {robustness} (best -> 1), InstanceScore: {instanceScore} (best -> 1)"
         if writeInfo:
             self.__addInfo(scoreStartInfo)
             self.__addInfo(scoreInfo)
-        finalScore = (25*score1/100) + (20*score2/100) + (50*robustness/100) + (5*instanceScore/100)
+        finalScore = (45*score/100) + (50*robustness/100) + (5*instanceScore/100)
         return finalScore
 
 
@@ -904,7 +940,7 @@ class AtariGamesClustering:
                 return 0
         
         wholeSim = 0
-        maxAmount = 100
+        maxAmount = 1000
 
         groundTruth, _ = self.cluster(data, hyperParam)
 
