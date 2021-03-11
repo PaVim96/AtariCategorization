@@ -1,0 +1,11 @@
+Data used from ./CatData/GL_BE.csv
+Scores were normalized with data from ./BaselineNormalizations/GL_HB_BE.csv
+Scores were normalized with data from ./BaselineNormalizations/GL_HB_BE.csv
+Normalization used was Min-Max; AlongGame: False
+Features kept are: ['Human-DQN' 'Noop Reactor' 'Human-DDQN-T Duel']
+Best Algorithm calculation
+Clustering Info:
+Categorization was done with KMedoids, with hyperparameter: 4
+Scoring:
+Mean Silhouette Coefficient: 0.9126864962888186 (best -> 1), Robustness: 0.5851782076719584 (best -> 1), InstanceScore: 0.9000514359196271 (best -> 1)
+Final score of your clustering is: 0.7646760133927719

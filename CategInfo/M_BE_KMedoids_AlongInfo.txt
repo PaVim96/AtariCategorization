@@ -1,0 +1,11 @@
+Data used from ./CatData/M_BE.csv
+Scores were normalized with data from ./BaselineNormalizations/M_HB_BE.csv
+Scores were normalized with data from ./BaselineNormalizations/M_HB_BE.csv
+Normalization used was Min-Max; AlongGame: False
+Features kept are: ['Human-DQN' 'Discrimination' 'Human-Noisy DQN']
+Best Algorithm calculation
+Clustering Info:
+Categorization was done with KMedoids, with hyperparameter: 4
+Scoring:
+Mean Silhouette Coefficient: 0.927857306057474 (best -> 1), Robustness: 0.41755621587492553 (best -> 1), InstanceScore: 0.5406655580048504 (best -> 1)
+Final score of your clustering is: 0.678862228072696

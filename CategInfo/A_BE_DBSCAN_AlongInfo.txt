@@ -1,0 +1,12 @@
+Data used from ./CatData/A_BE.csv
+Scores were normalized with data from ./BaselineNormalizations/A_HB_BE.csv
+Scores were normalized with data from ./BaselineNormalizations/A_HB_BE.csv
+Normalization used was Standard; AlongGame: False
+Features kept are: ['Noop-DDQN']
+Best Algorithm calculation
+Clustering Info:
+Categorization was done with DBSCAN, with hyperparameter: 5.3
+Best epsilon for DBSCAN is 5.3
+Scoring:
+Mean Silhouette Coefficient: 0.973610241655009 (best -> 1), Robustness: 1.0 (best -> 1), InstanceScore: 0.26963369960298217 (best -> 1)
+Final score of your clustering is: 0.9502868058076537
