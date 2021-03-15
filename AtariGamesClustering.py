@@ -258,12 +258,6 @@ class AtariGamesClustering:
         normMethod, alongGame = self.getNormalization()
         self.__checkNormVal(normMethod)
 
-        #add info of methods used to information
-        if writeInfo:
-            alongGameInfo = f"Normalization was done along games: {alongGame}"
-            normMethodInfo = f"Normalization was done using {normMethod}"
-            self.__addInfo(alongGameInfo)
-            self.__addInfo(normMethodInfo)
 
         #if we have alongInformation scaling and number of rows == 1 -> can't normalize
         if not alongGame and dataToNormalize.shape[0] == 1:
@@ -277,19 +271,33 @@ class AtariGamesClustering:
                 return dataToNormalize
             dataToNormalize = np.transpose(dataToNormalize)
         
+        normMethodInfo = f"Normalization was done with Method: {normMethod}"
         if normMethod == "Min-Max":
             #min-max only makes sense with at least 3 samples
             if dataToNormalize.shape[0] < 3:
+                normMethodInfo = f"Normalization was done using NoNorm"
                 normalizedData = dataToNormalize
             else:
                 maxPerformances = np.max(dataToNormalize, axis=0)
                 minPerformances = np.min(dataToNormalize, axis=0) 
                 normalizedData = (dataToNormalize - minPerformances)/ (maxPerformances - minPerformances)
         elif normMethod == "Standard":
-            scaler = StandardScaler()
-            normalizedData = scaler.fit_transform(dataToNormalize)
+            #check if number samples is atleast bigger than two, else it doesn't really give plausible data 
+            if dataToNormalize.shape[0] < 3:
+                normMethodInfo = f"Normalization was done using NoNorm"
+                normalizedData = dataToNormalize
+            else:
+                scaler = StandardScaler()
+                normalizedData = scaler.fit_transform(dataToNormalize)
         elif normMethod == "NoNorm":
             normalizedData = dataToNormalize
+
+
+        #add info of methods used to information
+        if writeInfo:
+            alongGameInfo = f"Normalization was done along games: {alongGame}"
+            self.__addInfo(alongGameInfo)
+            self.__addInfo(normMethodInfo)
         
         #if we wanted alongGame we transposed data before, so undo that
         if alongGame:
@@ -428,6 +436,7 @@ class AtariGamesClustering:
 
         #iterate over all possibilities 
         for clusterAlgo in self.getPossibleCatAlgorithms():
+            print(self.getPossibleCatAlgorithms())
             if (clusterAlgo == "DBSCAN" and not useDBSCAN):
                 continue
             self.setClusterAlgorithm(clusterAlgo)
@@ -474,14 +483,37 @@ class AtariGamesClustering:
                 self.__addInfo(featureInfo)
             self.__addInfo(bestAlgoInfo)
         labels, _ = self.cluster(finalData, hyperParam=bestClusterParam, writeInfo=writeInfo)
+        print(self.getScoringWeights())
         finalScore = self.calcScore(finalData, labels, bestClusterParam, writeInfo=writeInfo)
         finalScoreInfo = f"Final score of your clustering is: {finalScore}"
         if writeInfo:
             self.__addInfo(finalScoreInfo)
-        return labels
+        return labels, finalData
 
 
+    def __checkPath(self, fileName, ending):
 
+        folder = None
+        if ending == "png":
+            folder = "Visualisations"
+        elif ending == "txt":
+            folder = "CategInfo"
+        elif ending == "html":
+            folder = "Heatmaps"
+        elif ending == "csv":
+            folder = "CalculatedCats"
+        else:
+            raise ValueError("This type of file is not supported")
+
+
+        counter = 0
+        alreadyExists = os.path.isfile(fileName)
+        path = f"./{folder}/{fileName}.{ending}"
+        while alreadyExists:
+            counter += 1
+            path = f"./{folder}/{fileName}{counter}.{ending}"
+            alreadyExists = os.path.isfile(fileName)
+        return path
 
 
     def writeInfo(self, fileName):
@@ -491,13 +523,7 @@ class AtariGamesClustering:
             fileName (String): [Name of output .txt file]
         """
 
-        counter = 0
-        alreadyExists = os.path.isfile(fileName)
-        path = f"./CategInfo/{fileName}.txt"
-        while alreadyExists:
-            counter += 1
-            path = f"./CategInfo/{fileName}{counter}.txt"
-            alreadyExists = os.path.isfile(fileName)
+        path = self.__checkPath(fileName, "txt")
 
         info = self.__getInfo()
         f = open(path, "w")
@@ -520,7 +546,8 @@ class AtariGamesClustering:
 
         csvData = {'Game': gameNames, 'Categories': labels}
         dataFrame = pd.DataFrame(data=csvData)
-        dataFrame.to_csv(f"./CalculatedCats/{saveFileName}.csv", index=False)
+        path = self.__checkPath(saveFileName, "csv")
+        dataFrame.to_csv(path, index=False)
 
     
     def heatmap(self, labels, saveFileName):
@@ -562,9 +589,9 @@ class AtariGamesClustering:
         #convert to csv needed for heatmap 
         heatmap = scoreVisualisation.catVis(dataFrame, False, False)
 
-        path = f"./Heatmaps/{saveFileName}.html"
-        heatmap.save(path)
-        webbrowser.open(f"./Heatmaps/{saveFileName}.html")
+        newPath = self.__checkPath(saveFileName, "html")
+        heatmap.save(newPath)
+        webbrowser.open(newPath)
 
         
 
@@ -601,17 +628,17 @@ class AtariGamesClustering:
         silhouetteScores = list()
 
         upperBound = int(data.shape[0] / 2)
-        
-        for i in range(4, upperBound):
+        lowerBound = 4
+        for i in range(lowerBound, upperBound):
             _, currScore = self.cluster(data, i)
             silhouetteScores.append(currScore)
         
         silhouetteScores = np.array(silhouetteScores).squeeze()
         #get best N (we assume ascending sorting)
         #+2 because we start with k=4
-        bestN = np.argsort(silhouetteScores)[::-1] + 4
+        bestN = np.argsort(silhouetteScores)[::-1] + lowerBound
         bestN = bestN[:5]
-        bestNScores = np.take(silhouetteScores, bestN-4)
+        bestNScores = np.take(silhouetteScores, bestN-lowerBound)
         #we do own scoring, because having more categories is better but we penalize with score 
         bestNPenalized = (75*bestNScores)/100 + (25*(bestN / np.max(bestN)))/100
 
@@ -664,15 +691,18 @@ class AtariGamesClustering:
         elif catMethod == "GMM":
             n = int(hyperParam)
             model = GaussianMixture(n, random_state=0, covariance_type="tied")
-        elif catMethod == "KMedoids":
+        elif catMethod == "KMedoids_Cos":
             n = int(hyperParam)
-            if data.shape[1] > 5:
-                metric = "manhattan"
-            else:
-                metric = "cosine"
+            metric = "cosine"
+            model = KMedoids(n, metric=metric)
+        elif catMethod == "KMedoids_Man":
+            n = int(hyperParam)
+            metric = "manhattan"
             model = KMedoids(n, metric=metric)
         elif catMethod == "DBSCAN":
             model = self.__DBSCANAlgo(normedData, epsilon = hyperParam, writeInfo=writeInfo)
+        else: 
+            raise ValueError("Categorization algorithm not known")
         
         labels = model.fit_predict(normedData)
 
@@ -712,7 +742,7 @@ class AtariGamesClustering:
         if currData.shape[1] == 1:
             y = np.zeros((currData.shape)).squeeze()
             x = currData.squeeze()
-            y = 5
+            y[:] = 5
         else:
             x = currData[:, 0].squeeze()
             y = currData[:, 1].squeeze()
@@ -720,14 +750,16 @@ class AtariGamesClustering:
             plt.scatter(x[labels == cat], y[labels == cat], label=cat)
             #annotate points with names
         for i in range(len(self.listOfGameNames)):
-            plt.annotate(self.listOfGameNames[i], (currData[i, 0], currData[i, 1]))
+            plt.annotate(self.listOfGameNames[i], (x[i], y[i]))
         plt.legend()
-        plt.show()
 
         #save plt if wanted 
         if fileName is not None:
-            path = f"./Visualisations/{fileName}.png"
-            plt.savefig(path)
+            newPath = self.__checkPath(fileName, "png")
+
+            plt.savefig(newPath)
+
+        plt.show()
 
 
 
@@ -822,12 +854,10 @@ class AtariGamesClustering:
         bestScoreAll = -np.inf
         iterations = 0
 
-        #current scoring weights 
-        currW = self.getScoringWeights()
-        sfsWeights = (0.9, 0.10, 0)
-        self.setScoringWeights(sfsWeights)
 
-
+        endWeights = self.getScoringWeights()
+        tmp = (0.85, 0.075, 0.075)
+        self.setScoringWeights(tmp)
         while len(indicesToKeep) < toKeep and iterations != toKeep:
             #ugly but needed: for DBSCAN we set for every iteration epsilon to None because for new features we need new epsilon
             self.__setDBSCANEpsilon(None)
@@ -845,7 +875,7 @@ class AtariGamesClustering:
                 #len == 0 -> just index
                 currentData = data[:, currentIndexArray]
                 hyperParam = self.optimalClusterParam(currentData)
-                labels, score = self.cluster(currentData, hyperParam=hyperParam)
+                labels, _ = self.cluster(currentData, hyperParam=hyperParam)
                 score = self.calcScore(currentData, labels, hyperParam, robustIterations=100)
                 if score > bestScore:
                     bestScore = score
@@ -858,7 +888,7 @@ class AtariGamesClustering:
                 iterations = toKeep
                 break
     
-        self.setScoringWeights(currW)
+        self.setScoringWeights(endWeights)
         return data[:, indicesToKeep], featureNames[indicesToKeep]
 
 
@@ -939,16 +969,18 @@ class AtariGamesClustering:
         return epsilon
 
 
-    def loadClustering(self, csvPath):
+    def loadClustering(self, fileName):
         """Loads a clustering from a CSV. CSV should have 2 columns: [Games, Labels]
 
         Args:
-            csvPath (String): [File in .CalculatedCats/]
+            fileName (String): [File in .CalculatedCats/]
 
         Returns:
             [(g,)]: [Numpy-Array containing the labels of the CSV]
         """
-        frame = pd.read_csv(csvPath)
+
+        path = f"./CalculatedCats/{fileName}.csv"
+        frame = pd.read_csv(path)
         labels = frame.iloc[:, 1].to_numpy()
         return labels.reshape((-1,1)).squeeze()
 
@@ -958,7 +990,7 @@ class AtariGamesClustering:
         else:
             return (silhouette_score(data, labels, metric)+1)/2
 
-    def calcScore(self, data, labels, clustParam, robustIterations=1000, writeInfo=False):
+    def calcScore(self, data, labels, clustParam, robustIterations=10000, writeInfo=False):
         """Calculates an Algorithm score from different metrics
 
         Args:
@@ -991,7 +1023,7 @@ class AtariGamesClustering:
         if writeInfo:
             self.__addInfo(scoreStartInfo)
             self.__addInfo(scoreInfo)
-        finalScore = (weights[0]*100*score/100) + (weights[1]*100*robustness/100) + (weights[2]*100*instanceScore/100)
+        finalScore = ((weights[0]*100*score)/100) + ((weights[1]*100*robustness)/100) + ((weights[2]*100*instanceScore)/100)
         return finalScore
 
 
@@ -1119,7 +1151,7 @@ class AtariGamesClustering:
         return normalizationTypes
 
     def __setCatAlgos(self):
-        categorizationAlgos = ["KMeans", "KMedoids", "GMM", "DBSCAN"]
+        categorizationAlgos = ["KMeans", "KMedoids_Man", "KMedoids_Cos", "GMM", "DBSCAN"]
         return categorizationAlgos
 
 
