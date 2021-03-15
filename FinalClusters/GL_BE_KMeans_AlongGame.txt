@@ -1,0 +1,9 @@
+Data used from ./CatData/GL_BE.csv
+Normalization: Standard; AlongGame (in reality no norm because 1d data)
+Features kept are: ['Human-A3C']
+Best Algorithm calculation
+Clustering Info:
+Categorization was done with KMeans, with hyperparameter: 4
+Scoring:
+Mean Silhouette Coefficient: 0.8903712561580515 (best -> 1), Robustness: 0.6218333333333311 (best -> 1), InstanceScore: 0.6957894209284351 (best -> 1)
+Final score of your clustering is: 0.7598000991254465

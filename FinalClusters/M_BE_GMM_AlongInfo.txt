@@ -1,0 +1,12 @@
+Data used from ./CatData/M_BE.csv
+Scores were normalized with data from ./BaselineNormalizations/M_HB_BE.csv
+Scores were normalized with data from ./BaselineNormalizations/M_HB_BE.csv
+Normalization used was Min-Max; AlongGame: False
+Features kept are: ['Human-DQN' 'Noop-DDQN' 'Human-Noisy DQN' 'Human-DQN Prio (RB)'
+ 'Human-DDQN' 'Human-DDQN-T']
+Best Algorithm calculation
+Clustering Info:
+Categorization was done with GMM, with hyperparameter: 4
+Scoring:
+Mean Silhouette Coefficient: 0.8579127234130492 (best -> 1), Robustness: 0.559912671212161 (best -> 1), InstanceScore: 0.48959599663400394 (best -> 1)
+Final score of your clustering is: 0.7053968635836975
